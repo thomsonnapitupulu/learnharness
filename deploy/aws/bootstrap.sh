@@ -17,7 +17,7 @@ NODE_SHA256=5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-apt_get() { apt-get -o DPkg::Lock::Timeout=300 -y -q "$@"; }
+apt_get() { apt-get -o DPkg::Lock::Timeout=300 -o Acquire::Retries=5 -y -q "$@"; }
 as_service() { runuser -u "$SERVICE_USER" -- env "HOME=$CACHE_DIR" NEXT_TELEMETRY_DISABLED=1 "$@"; }
 
 [ "$(id -u)" -eq 0 ] || die "run this as root"
@@ -98,6 +98,9 @@ mountpoint -q "$DATA_DIR" || mount "$DATA_DIR"
 chown "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
 chmod 750 "$DATA_DIR"
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$DATA_DIR/data"
+# A disk made from a snapshot keeps the number the old server's user had, and this server's user may have another. Hand
+# the app's files to the user (not the root-only *.before-import-* copies, nor lost+found).
+find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name '*.before-import-*' ! -name lost+found -exec chown -R "$SERVICE_USER:$SERVICE_USER" {} +
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0755 "$CACHE_DIR"
 
 say "The app: $LH_REPO_URL ($LH_REPO_BRANCH)"

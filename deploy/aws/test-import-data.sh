@@ -96,5 +96,25 @@ rm -rf "${T:?}/srv" && mkdir -p $T/srv/data && echo keep > $T/srv/data/keep.txt
 out=$(env PATH=$T/bin:$PATH LH_FAKE_AWS_FAIL=1 LH_FAKE_AWS_LOG=$T/aws.log LH_FAKE_AWS_ZIP=$T/plain.zip LH_IMPORT_SERVICE_ENV=$T/service.env LH_IMPORT_DATA_DIR=$T/srv LH_IMPORT_USER=root LH_IMPORT_SYSTEMCTL=true LH_IMPORT_HEALTH_URL=file:///etc/hostname bash $SCRIPT s3://a-bucket/learnharness-data.zip 2>&1); rc=$?
 check "exits non-zero and shows what aws said" "[ $rc -ne 0 ] && echo \"\$out\" | grep -q AccessDenied"
 check "the server's data is untouched" "[ -f $T/srv/data/keep.txt ] && [ -z \"\$(ls $T/srv | grep -E 'before-import|import')\" ]"
+echo "--- 9. a link inside the zip is refused, and what it points at is left alone"
+echo "outside the server" > $T/outside.txt && chmod 644 $T/outside.txt
+rm -rf "${T:?}/linked" && mkdir -p $T/linked/data/chats && echo '{}' > $T/linked/data/settings.json && ln -s $T/outside.txt $T/linked/auth.json
+(cd $T/linked && zip -qry $T/link-auth.zip data auth.json)
+rm -rf "${T:?}/linked2" && mkdir -p $T/linked2/data/chats && echo '{}' > $T/linked2/data/settings.json && ln -s $T/outside.txt $T/linked2/data/chats/c9.json
+(cd $T/linked2 && zip -qry $T/link-data.zip data)
+rm -rf "${T:?}/srv" && mkdir -p $T/srv/data && echo keep > $T/srv/data/keep.txt
+for z in link-auth link-data; do
+  out=$(run $T/$z.zip 2>&1); rc=$?
+  check "$z.zip is refused and says why" "[ $rc -ne 0 ] && echo \"\$out\" | grep -q 'symbolic link'"
+  check "$z.zip: the server's data is untouched" "[ -f $T/srv/data/keep.txt ] && [ -z \"\$(ls $T/srv | grep -E 'before-import|import')\" ]"
+  check "$z.zip: the file the link pointed at keeps its mode (644)" "[ \"\$(stat -c %a $T/outside.txt)\" = 644 ]"
+done
+echo "--- 10. what is moved aside is readable by root only; the new data belongs to the service user"
+rm -rf "${T:?}/srv" && mkdir -p $T/srv/data/chats && echo '{"id":"server-only"}' > $T/srv/data/chats/server-only.json && echo '{"K":"server"}' > $T/srv/auth.json && chmod 644 $T/srv/auth.json
+out=$(LH_IMPORT_DATA_DIR=$T/srv LH_IMPORT_USER=nobody LH_IMPORT_SYSTEMCTL=true LH_IMPORT_HEALTH_URL=file:///etc/hostname bash $SCRIPT $T/plain.zip 2>&1); rc=$?
+check "exits 0" "[ $rc -eq 0 ]"
+check "the new data is owned by the service user, and auth.json has mode 600" "[ \"\$(stat -c %U $T/srv/data)\" = nobody ] && [ \"\$(stat -c %U $T/srv/data/chats/c1.json)\" = nobody ] && [ \"\$(stat -c '%U %a' $T/srv/auth.json)\" = 'nobody 600' ]"
+check "the old data folder is root's and closed to others (700)" "[ \"\$(stat -c '%U %a' \$(ls -d $T/srv/data.before-import-* | head -1))\" = 'root 700' ] && [ \"\$(stat -c %U \$(ls -d $T/srv/data.before-import-* | head -1)/chats/server-only.json)\" = root ]"
+check "the old auth.json is root's with mode 600" "[ \"\$(stat -c '%U %a' \$(ls -d $T/srv/auth.json.before-import-* | head -1))\" = 'root 600' ]"
 echo; echo "passed $pass, failed $fail"
 exit $fail

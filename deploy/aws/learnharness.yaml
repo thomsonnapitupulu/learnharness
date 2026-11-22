@@ -272,7 +272,8 @@ Resources:
 
   Server:
     Type: AWS::EC2::Instance
-    DependsOn: ElasticIpAssociation
+    # The route to the internet must exist before the server boots: its first step is to download packages.
+    DependsOn: [ElasticIpAssociation, DefaultRoute, SubnetRouteTable]
     Properties:
       ImageId: !Ref UbuntuAmiParameter
       InstanceType: !Ref InstanceType
@@ -309,8 +310,8 @@ Resources:
           LH_REGION=${AWS::Region}
           EOF_ENV
           chmod 600 /etc/learnharness/bootstrap.env
-          apt-get -o DPkg::Lock::Timeout=300 -y -q update
-          apt-get -o DPkg::Lock::Timeout=300 -y -q install git ca-certificates curl
+          apt-get -o DPkg::Lock::Timeout=300 -o Acquire::Retries=5 -y -q update
+          apt-get -o DPkg::Lock::Timeout=300 -o Acquire::Retries=5 -y -q install git ca-certificates curl
           git clone --depth 1 --branch '${RepoBranch}' '${RepoUrl}' /opt/learnharness
           bash /opt/learnharness/deploy/aws/bootstrap.sh
           signal SUCCESS "installed"

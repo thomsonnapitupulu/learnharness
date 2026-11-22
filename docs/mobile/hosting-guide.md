@@ -101,11 +101,11 @@ sudo /opt/learnharness/deploy/aws/update.sh main       # move to another branch 
 sudo /opt/learnharness/deploy/aws/update.sh --rebuild  # build again even if nothing new came
 ```
 
-The site is down for the few minutes the build takes, and your data is not touched.
+The site is down for the few minutes the build takes, and your data is not touched. `update.sh` updates the app only. If a new version also changes the server's own setup (the service, the Caddyfile or its settings), run `sudo bash /opt/learnharness/deploy/aws/bootstrap.sh` afterwards: it is safe to repeat and rebuilds the app too.
 
 Ubuntu installs security updates by itself. Some need a restart: about once a month, run `ls /var/run/reboot-required`, and if that file exists, `sudo reboot`. The site is back in about a minute, with the data and sign-ins as they were.
 
-**Do not change settings by updating the stack.** The template is meant to be created once. An update can make CloudFormation try to replace the server (Canonical publishes a new Ubuntu image every few weeks, and the template looks the newest one up each time), and that replacement fails while the data disk is attached. Use the scripts above for code, and for a bigger data disk use the EC2 console (Volumes, Modify volume), then `sudo resize2fs` on the server.
+**Do not change settings by updating the stack.** The template is meant to be created once. An update can make CloudFormation try to replace the server (Canonical publishes a new Ubuntu image every few weeks, and the template looks the newest one up each time), and that replacement fails while the data disk is attached. Use the scripts above for code, and for a bigger data disk use the EC2 console (Volumes, Modify volume), then `sudo resize2fs "$(findmnt -no SOURCE /srv/lh)"` on the server.
 
 ## Backups and restore
 
@@ -132,7 +132,7 @@ The data disk is snapshotted every day at 20:00 UTC (03:00 in Jakarta) and the l
 
 1. Note the newest snapshot of your data disk (EC2, Snapshots). The data disk's id is the `DataVolumeId` output.
 2. Empty the migration bucket (see [Taking it down](#taking-it-down)) and delete the stack. Deleting the stack takes one last snapshot of the data disk, and the daily ones stay.
-3. Create the stack again exactly as in step 1, with **DataSnapshotId** set to that snapshot's id. The new data disk is made from it, and the install does not format a disk that already holds data. Your data, API keys and password come back with it, so you skip steps 2, 4 and 6.
+3. Create the stack again exactly as in step 1, with **DataSnapshotId** set to that snapshot's id. The new data disk is made from it, and the install does not format a disk that already holds data. Your data, API keys and password come back with it, so you skip steps 4 and 6. **Do step 2 again:** the new stack makes a new SES identity for your address, and mail to an unverified address does not arrive while the account is in the sandbox.
 
 This path is not rehearsed; it follows how the template is written.
 
@@ -163,7 +163,7 @@ The budget in the stack emails you at 80% of US$60 spent in a month (the whole a
 - Only ports 80 and 443 are open. There is no SSH. The shell is Session Manager, which uses your AWS sign-in.
 - LearnHarness listens on `localhost:3000`, so only Caddy reaches it. With no password set, it refuses every request that did not come from the server itself.
 - The server may read its metadata only with a session token (IMDSv2), so a request that merely fetches a page cannot read the server's AWS credentials.
-- The server's role may send mail as `no-reply@learn.heythomson.com` and to your address, may read (never write) the migration bucket, and may open a Session Manager shell. Nothing else.
+- The server's role may send mail as `no-reply@learn.heythomson.com` and to your address, may read (never write) the migration bucket, and has AWS's standard Session Manager policy (`AmazonSSMManagedInstanceCore`). That policy also lets the server read Parameter Store values in the account. If you keep secrets there for other apps, swap it for the smaller policy AWS documents for Session Manager alone (the `ManagedPolicyArns` entry of `ServerRole` in the template).
 - Both disks are encrypted. `auth.json` (your API keys) is plain text inside, as it is on the desktop.
 - The agent's file tools can read the data folder, which holds your sessions and uploads, but are blocked from `auth.json` and `access.json` (the password and sign-in state).
 - Sign-in locks after 20 wrong passwords in an hour, and the unlock link works once for 15 minutes ([login.md](login.md)).
@@ -190,9 +190,9 @@ In a server shell, `journalctl -u learnharness -n 100` is the app's log, `journa
 
 Tested, in a sandbox, not on AWS:
 
-- The template passes `cfn-lint` and `yamllint` with no findings.
-- The scripts (`bootstrap.sh`, `update.sh`, `access.sh`, `import-data.sh`, and the start-up script inside the template) pass `shellcheck`.
-- `import-data.sh` was run against fake server folders and zips: a plain zip, a repeat import (the old data is kept aside), a Finder-style zip, refusals, a zip without keys, an `s3://` address read with a stand-in for the `aws` command, a failed download, and a site that does not come back. 28 checks, in `deploy/aws/test-import-data.sh` (run it with `sudo`; it takes a few seconds).
+- The template passes `cfn-lint`, and `yamllint` with its relaxed rule set and lines of up to 200 characters.
+- The scripts (`bootstrap.sh`, `update.sh`, `access.sh`, `import-data.sh`, the import test, and the start-up script inside the template, rendered with sample values filled in) pass `shellcheck` at its strictest level, with no findings.
+- `import-data.sh` was run against fake server folders and zips: a plain zip, a repeat import (the old data is kept aside), a Finder-style zip, refusals, a zip without keys, an `s3://` address read with a stand-in for the `aws` command, a failed download, a zip with a symbolic link in it (refused, and what it pointed at is left alone), the old data kept root-only, and a site that does not come back. 38 checks, in `deploy/aws/test-import-data.sh` (run it with `sudo`; it takes a few seconds).
 - The sign-in command, the unlock email and the upload limits are covered by the earlier stories' tests.
 - The checksum for the Node 26.13.1 download in `bootstrap.sh` matches the one nodejs.org publishes (checked 2026-11-22), and the AWS CLI download address answers. The sandbox could not reach Google's or Caddy's download hosts, so the Chrome and Caddy addresses are the vendors' own documented ones, unchecked.
 

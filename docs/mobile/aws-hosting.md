@@ -42,7 +42,7 @@ One user and a single-process server that keeps JSON files on local disk means o
 | Systems Manager Session Manager | Shell access with no SSH port open | | Free |
 | CloudWatch | Auto-recover alarm on the instance status check | 1 alarm | ~US$0.10 |
 | AWS Budgets | Alert before credits run out | 1 budget | Free |
-| IAM | Instance role: SSM managed policy, `ses:SendEmail` for the one sender, read on the temporary migration bucket | | Free |
+| IAM | Instance role: AWS's managed Session Manager policy (which also lets the server read Parameter Store values in the account), `ses:SendEmail` for the sender and the owner's address, read on the migration bucket | | Free |
 | S3 | A private bucket made by the stack for the one-time data upload. Files in it expire after 7 days, and the bucket goes with the stack (empty it first) | | ~US$0 |
 
 Region: `us-east-1`. t3.medium is US$0.0416 an hour there against about US$0.053 in Jakarta or Singapore ([CloudPrice](https://cloudprice.net/aws/ec2/instances/t3.medium), [DevZero](https://www.devzero.io/instances/aws/t3.medium), checked 2026-11-22). Pages may load about a quarter second slower from Indonesia; model replies come from US-based providers anyway.

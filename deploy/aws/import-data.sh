@@ -44,6 +44,10 @@ esac
 say "Unpacking and checking it"
 mkdir "$work/unzipped"
 unzip -q "$work/data.zip" -d "$work/unzipped"
+# A link inside the zip could point at any file on this server, and the commands below (chown, chmod) would follow it.
+if [ -n "$(find "$work/unzipped" -type l -print -quit)" ]; then
+  die "the zip contains a symbolic link (an alias). Those are not copied, because a link can point at any file on this server. Zip the data folder and auth.json again without aliases."
+fi
 root=$work/unzipped
 # A zip made by right-clicking the whole LearnHarness folder has one folder around everything: look inside it.
 if [ ! -d "$root/data" ]; then
@@ -66,19 +70,25 @@ say "Copying to the data disk"
 rm -rf "${DATA_DIR:?}/.data-import" "${DATA_DIR:?}/.auth-import"
 cp -a "$root/data" "$DATA_DIR/.data-import"
 [ "$have_auth" -eq 0 ] || cp -a "$root/auth.json" "$DATA_DIR/.auth-import"
-chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/.data-import"
-[ "$have_auth" -eq 0 ] || chown "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR/.auth-import"
+chown -R "$SERVICE_USER:" "$DATA_DIR/.data-import"
+[ "$have_auth" -eq 0 ] || chown "$SERVICE_USER:" "$DATA_DIR/.auth-import"
 [ "$have_auth" -eq 0 ] || chmod 600 "$DATA_DIR/.auth-import"
 
 say "Stopping the site and swapping the data in"
 "$SYSTEMCTL" stop learnharness || true
-stamp=$(date +%Y%m%d-%H%M%S)
+stamp=$(date +%Y%m%d-%H%M%S)-$$
 [ ! -e "$DATA_DIR/data" ] || mv "$DATA_DIR/data" "$DATA_DIR/data.before-import-$stamp"
 mv "$DATA_DIR/.data-import" "$DATA_DIR/data"
 if [ "$have_auth" -eq 1 ]; then
   [ ! -e "$DATA_DIR/auth.json" ] || mv "$DATA_DIR/auth.json" "$DATA_DIR/auth.json.before-import-$stamp"
   mv "$DATA_DIR/.auth-import" "$DATA_DIR/auth.json"
 fi
+
+# What was moved aside stays on this disk for you alone. The app, and the agent's file tools that read the app's home
+# folder, must not be able to read old keys.
+for old in "$DATA_DIR/data.before-import-$stamp" "$DATA_DIR/auth.json.before-import-$stamp"; do
+  if [ -e "$old" ] && [ ! -L "$old" ]; then chown -R root:root "$old"; chmod -R go-rwx "$old"; fi
+done
 
 say "Starting the site"
 "$SYSTEMCTL" start learnharness
@@ -91,7 +101,7 @@ done
 
 echo
 echo "Done. Your data is on the server and the site is up."
-echo "What the server held before is kept, untouched:"
+echo "What the server held before is kept, readable by root only:"
 [ ! -e "$DATA_DIR/data.before-import-$stamp" ] || echo "  $DATA_DIR/data.before-import-$stamp"
 [ ! -e "$DATA_DIR/auth.json.before-import-$stamp" ] || echo "  $DATA_DIR/auth.json.before-import-$stamp"
 echo "Once everything looks right on your phone, you can delete those, and the zip in S3."
