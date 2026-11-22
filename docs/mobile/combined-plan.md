@@ -109,5 +109,5 @@ Inside it: `data/` (chats, jobs, graph, settings, prompt overrides, plugin data)
 - [x] Domain: `learn.heythomson.com`, a new subdomain; the app already running on `heythomson.com` is untouched.
 - [x] Unlock email address: given by the owner; set only in the server's `LH_ACCESS_EMAIL`, never in the repo.
 - [x] Desktop OS: macOS, so the data lives in `~/Library/Application Support/LearnHarness/`.
-- [ ] Where `heythomson.com`'s DNS is hosted (Route 53 or another provider), which decides whether the template creates the DNS records or they are added by hand.
+- [x] DNS: `heythomson.com` is on Route 53 in the same AWS account, so the template adds the `learn` A record and the SES DKIM records into the existing hosted zone (no new zone).
 - [ ] Approval of this plan, so building can start at step 1.
