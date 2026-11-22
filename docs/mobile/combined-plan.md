@@ -17,6 +17,7 @@ Status: plan only, and nothing is built. The paused login code survives only as 
 | Hosting | One EC2 t3.medium in us-east-1, encrypted data disk, Elastic IP, Route 53, Caddy for HTTPS, Session Manager instead of SSH, daily snapshots kept 14 days, SES for unlock email, about US$40 a month | [aws-hosting.md](aws-hosting.md) |
 | Region | US East (N. Virginia) `us-east-1`, the cheapest: t3.medium US$0.0416/hr vs about US$0.053 in Jakarta or Singapore ([CloudPrice](https://cloudprice.net/aws/ec2/instances/t3.medium), [DevZero](https://www.devzero.io/instances/aws/t3.medium), checked 2026-11-22) | aws-hosting.md |
 | AWS setup | A CloudFormation template in the fork | This plan |
+| Domain | `learn.heythomson.com` (subdomain; the existing app on `heythomson.com` is untouched) | This plan |
 | Server mode | Browser-only mode (`npm start`); no desktop "Phone access" switch | aws-hosting.md |
 | Desktop app | Gets a "Server" setting and connects to the AWS server (step 7) | This plan |
 | Models | API keys only, which move with the data | This plan |
@@ -105,7 +106,8 @@ Inside it: `data/` (chats, jobs, graph, settings, prompt overrides, plugin data)
 - [x] Models: API keys only.
 - [x] AWS setup: CloudFormation template.
 - [x] Region: us-east-1.
-- [ ] Domain or subdomain (also the SES sender domain).
-- [ ] Unlock email address (set in the server's environment, never in the repo; verified once in SES).
-- [ ] Desktop OS, for the exact copy steps.
+- [x] Domain: `learn.heythomson.com`, a new subdomain; the app already running on `heythomson.com` is untouched.
+- [x] Unlock email address: given by the owner; set only in the server's `LH_ACCESS_EMAIL`, never in the repo.
+- [x] Desktop OS: macOS, so the data lives in `~/Library/Application Support/LearnHarness/`.
+- [ ] Where `heythomson.com`'s DNS is hosted (Route 53 or another provider), which decides whether the template creates the DNS records or they are added by hand.
 - [ ] Approval of this plan, so building can start at step 1.

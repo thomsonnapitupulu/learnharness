@@ -10,8 +10,8 @@ Run LearnHarness on one small EC2 instance in US East (N. Virginia), the cheapes
 
 ```mermaid
 flowchart LR
-    PHONE[Phone: home-screen web app] -->|HTTPS, your domain| CADDY
-    DESKTOP[Desktop app, Server = AWS] -->|HTTPS, your domain| CADDY
+    PHONE[Phone: home-screen web app] -->|HTTPS, learn.heythomson.com| CADDY
+    DESKTOP[Desktop app, Server = AWS] -->|HTTPS, learn.heythomson.com| CADDY
     subgraph AWS us-east-1
       subgraph EC2 t3.medium, ports 80 and 443 only
         CADDY[Caddy: TLS, Let's Encrypt] --> LH[LearnHarness on localhost:3000<br/>password login, agents, jobs, Chromium]
@@ -34,9 +34,9 @@ One user and a single-process server that keeps JSON files on local disk means o
 | EC2 | Runs LearnHarness, Caddy, Chromium | t3.medium (2 vCPU, 4 GiB), Ubuntu 24.04 LTS, x86 | ~US$30 |
 | EBS gp3, encrypted | Root disk, plus a separate data disk for `LH_DATA_DIR` and `auth.json` | 20 GiB root + 20 GiB data | ~US$4 |
 | Elastic IP | Fixed public address for DNS | 1 public IPv4 | ~US$3.60 |
-| Route 53 | DNS for the domain (or an A record at the current DNS host) | 1 hosted zone | ~US$0.50 |
+| DNS | `learn.heythomson.com`: an A record to the Elastic IP plus 3 SES DKIM CNAMEs. Created by the template if `heythomson.com` is on Route 53, otherwise added by hand at its DNS host. Nothing else on `heythomson.com` changes. | 4 records | ~US$0 (or ~US$0.50 for a hosted zone) |
 | Data Lifecycle Manager | Daily snapshots of the data disk, kept 14 days | | ~US$1 |
-| SES | One-time unlock emails from a verified sender on the domain, DKIM in Route 53; sandbox is enough for one recipient **(guess: true under current SES rules)** | | ~US$0 |
+| SES | One-time unlock emails from `no-reply@learn.heythomson.com` (the subdomain is the verified identity, so the main domain's email setup is untouched) to the owner's verified address; sandbox is enough for one recipient **(guess: true under current SES rules)** | | ~US$0 |
 | Systems Manager Session Manager | Shell access with no SSH port open | | Free |
 | CloudWatch | Auto-recover alarm on the instance status check | 1 alarm | ~US$0.10 |
 | AWS Budgets | Alert before credits run out | 1 budget | Free |
@@ -61,8 +61,8 @@ Not needed for one user:
 2. Node.js at the version the repo's CI uses **(guess: Node 22 LTS)**, then `npm ci`, `npm run plugins:setup`, `npm run build` from the fork.
 3. Chromium from apt, with `CHROME_PATH` pointing at it, so demo checking works.
 4. A `learnharness` system user with home `/srv/lh`, and a systemd service running `npm start` (binds `localhost`), restarting on failure.
-5. Environment: `LH_DATA_DIR=/srv/lh/data`, `LH_AUTH_FILE=/srv/lh/auth.json` (both on the data disk), `LH_ALLOWED_HOSTS=<domain>`, `LH_ACCESS_EMAIL=<unlock address>`.
-6. Caddy: `<domain> { request_body { max_size 70MB } reverse_proxy 127.0.0.1:3000 }`. It gets and renews the certificate itself.
+5. Environment: `LH_DATA_DIR=/srv/lh/data`, `LH_AUTH_FILE=/srv/lh/auth.json` (both on the data disk), `LH_ALLOWED_HOSTS=learn.heythomson.com`, `LH_ACCESS_EMAIL=<unlock address>`.
+6. Caddy: `learn.heythomson.com { request_body { max_size 70MB } reverse_proxy 127.0.0.1:3000 }`. It gets and renews the certificate itself.
 7. Updates: pull the fork, rebuild, restart. A small script does this, run over Session Manager.
 
 ## Security
