@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
+import { cn } from "@/lib/utils";
 import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
 import { useDictationLanguage } from "@/components/dictation-preference";
 import { setDictationActive } from "@/components/dictation-state";
@@ -756,14 +757,55 @@ export function useDictation({ append, destination = "primary", disabled = false
  *   error     the wide button again, label swapped for the failure reason
  *             (full text in the tooltip), cleared on the next click.
  */
-export function DictationBar({ dictation, disabled = false }: { dictation: Dictation; disabled?: boolean }) {
-	const { phase, error, levelRef, toggle, active, clearError, blocked } = dictation;
+/** What a click on a dictation button does. The keyless click (zero-keys wave,
+ *  owner dictation trio): the errored idle button deep-links Settings → Keys →
+ *  the Deepgram row and clears the error — the surface is clean when the user
+ *  returns. Any other error keeps the old behavior (click = retry, which
+ *  clears). Shared by the stats-row strip and the phone's microphone. */
+function useDictationClick({ error, toggle, clearError }: Dictation): () => void {
 	const { open: openSettings } = useSettingsDialog();
-	/** The keyless click (zero-keys wave, owner dictation trio): the errored
-	 *  idle button deep-links Settings → Keys → the Deepgram row and clears
-	 *  the error — the surface is clean when the user returns. Any other
-	 *  error keeps the old behavior (click = retry, which clears). */
-	const keyless = error === DICTATION_KEYLESS;
+	return () => {
+		if (error === DICTATION_KEYLESS) {
+			clearError();
+			openSettings("keys", DEEPGRAM_KEY_ID);
+		} else {
+			toggle();
+		}
+	};
+}
+
+/**
+ * The microphone on a phone (mobile epic, story 5a). The stats row has no room
+ * for the wide "Dictate" strip at 390px (it shrank to 2px), so below 768px the
+ * same control is one 44px icon button beside Attach in the composer row, and
+ * the strip is hidden there (StatsBar). Red and pulsing while it records; the
+ * level meter is not shown on a phone. Renders nothing at other widths.
+ */
+export function DictationMic({ dictation, disabled = false }: { dictation: Dictation; disabled?: boolean }) {
+	const { phase, error, active, blocked } = dictation;
+	const click = useDictationClick(dictation);
+	return (
+		<button
+			type="button"
+			onClick={click}
+			disabled={disabled || blocked || phase === "stopping"}
+			aria-label={error ? `Dictation failed: ${error}` : active ? "Stop dictation" : "Start dictation"}
+			aria-pressed={active}
+			title={error ?? undefined}
+			data-testid="dictation-mic"
+			className={cn(
+				"hidden size-11 shrink-0 items-center justify-center rounded-[10px] transition-colors disabled:opacity-40 phone:flex",
+				active ? "animate-pulse bg-destructive/10 text-destructive" : error ? "text-destructive" : "text-muted-foreground",
+			)}
+		>
+			{phase === "stopping" ? <Loader2Icon className="size-4 animate-spin" /> : <MicIcon className="size-4" />}
+		</button>
+	);
+}
+
+export function DictationBar({ dictation, disabled = false }: { dictation: Dictation; disabled?: boolean }) {
+	const { phase, error, levelRef, toggle, active, blocked } = dictation;
+	const click = useDictationClick(dictation);
 	const [levels, setLevels] = useState<number[]>(() => new Array(METER_CELLS).fill(0));
 	/** Adaptive cell count (owner round 2): derived from the meter's
 	 *  measured width — narrow rows show fewer bars instead of
@@ -815,14 +857,7 @@ export function DictationBar({ dictation, disabled = false }: { dictation: Dicta
 			>
 				<button
 					type="button"
-					onClick={() => {
-						if (keyless) {
-							clearError();
-							openSettings("keys", DEEPGRAM_KEY_ID);
-						} else {
-							toggle();
-						}
-					}}
+					onClick={click}
 					disabled={disabled || blocked}
 					aria-label={error ? `Dictation failed: ${error}` : "Start dictation"}
 					data-testid="dictation-toggle"

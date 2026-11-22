@@ -5,6 +5,8 @@ import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
+import { DictationMic, type Dictation } from "@/components/dictation";
+import { enterMaySend } from "@/lib/touch-keyboard";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
 
@@ -54,6 +56,8 @@ export function ChatSessionComposer({
 	onStop,
 	sendAllowed,
 	dictationActive,
+	dictation,
+	dictationDisabled,
 	autoFocus,
 	inputRef,
 	onEscape,
@@ -70,6 +74,9 @@ export function ChatSessionComposer({
 	onStop: () => void;
 	sendAllowed: boolean;
 	dictationActive: boolean;
+	/** On a phone the microphone sits in the composer row (story 5a). */
+	dictation?: Dictation;
+	dictationDisabled?: boolean;
 	autoFocus?: boolean;
 	inputRef?: React.RefObject<HTMLDivElement | null>;
 	onEscape?: () => void;
@@ -94,6 +101,8 @@ export function ChatSessionComposer({
 			onSend={onSend}
 			onStop={onStop}
 			canSend={canSend}
+			dictation={dictation}
+			dictationDisabled={dictationDisabled}
 			autoFocus={autoFocus}
 			inputRef={inputRef}
 			onEscape={onEscape}
@@ -111,6 +120,8 @@ export function Composer({
 	onSend,
 	onStop,
 	canSend,
+	dictation,
+	dictationDisabled,
 	autoFocus,
 	inputRef,
 	onEscape,
@@ -126,6 +137,10 @@ export function Composer({
 	onSend: () => void;
 	onStop: () => void;
 	canSend: boolean;
+	/** On a phone the microphone sits here, beside Attach (story 5a); at other
+	 *  widths the stats row's strip is the dictation control. */
+	dictation?: Dictation;
+	dictationDisabled?: boolean;
 	autoFocus?: boolean;
 	/** The page's handle to the textarea — the dictation-end focus (owner,
 	 *  2026-10-01): a run ending hands the cursor to the bare composer. */
@@ -188,7 +203,7 @@ export function Composer({
 					// Chat convention: Enter sends, Shift+Enter is a newline.
 					// ⌘/Ctrl+Enter also sends — the universal submit shortcut
 					// across every input in the app (thinking field, answers).
-					if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
+					if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey) && enterMaySend(e)) {
 						e.preventDefault();
 						act();
 					}
@@ -197,6 +212,7 @@ export function Composer({
 				autoFocus={autoFocus}
 				className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 			/>
+			{dictation && <DictationMic dictation={dictation} disabled={dictationDisabled} />}
 			<AttachFilesButton editorRef={editorRef} />
 			{/* The button follows the text (owner report 2026-10-03): while
 				 a turn runs WITH text typed it stays the SEND affordance
@@ -217,7 +233,7 @@ export function Composer({
 						type="submit"
 						data-testid="next-problem-button"
 						aria-label="Next problem"
-						className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-success px-4 font-ui text-xs font-medium uppercase tracking-wide text-background transition-colors hover:bg-success/85"
+						className="flex h-10 pointer-coarse:h-11 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-success px-4 font-ui text-xs font-medium uppercase tracking-wide text-background transition-colors hover:bg-success/85"
 					>
 						Next problem
 						<ArrowRightIcon className="size-4" />
@@ -228,7 +244,7 @@ export function Composer({
 						aria-label={busy && !canSend ? "Stop" : "Send"}
 						disabled={!busy && !canSend}
 						className={cn(
-							"flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors",
+							"flex size-10 pointer-coarse:size-11 shrink-0 items-center justify-center rounded-[10px] transition-colors",
 							busy && !canSend
 								? "bg-secondary text-foreground hover:bg-accent"
 								: "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40",

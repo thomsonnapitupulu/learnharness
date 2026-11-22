@@ -524,7 +524,9 @@ for (const check of [false, true]) test(`healthy ${check ? "teach" : "probe"} th
 	assert.equal(submit.textContent, "Submit answer");
 	assert.equal(input.classList.contains("min-h-[4.5rem]"), false, "even teaching starts with the approved compact field");
 	const hint = submit.parentElement?.querySelector('span[aria-hidden="true"]')!;
-	assert.ok(hint); assert.equal(hint.textContent, "↵ submits · ⇧↵ newline");
+	assert.ok(hint);
+	assert.equal(hint.firstElementChild?.textContent, "↵ submits · ⇧↵ newline", "a computer's keyboard");
+	assert.equal(hint.lastElementChild?.textContent, "↵ new line", "an on-screen keyboard (story 5a): Enter is a newline there");
 	for (const token of ["pl-1.5", "text-xs", "text-muted-foreground"]) assert.ok(hint.classList.contains(token), token);
 	assert.ok(submit.parentElement?.classList.contains("p-1"));
 	for (const token of ["ml-auto", "h-9", "rounded-[6px]", "px-3.5", "text-sm", "font-medium"]) assert.ok(submit.classList.contains(token), token);

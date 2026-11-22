@@ -12,6 +12,8 @@ import { finishDictation, joinDictation, usePluginQuestionDictationTarget } from
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { useEnterSubmits } from "./enter-submits";
+import { EnterHint } from "./enter-hint";
+import { enterMaySend } from "../lib/touch-keyboard";
 import { ownPluginQuestionKeys, composingQuestionKey, pluginQuestionKeySuppressed } from "./plugin-question-keys";
 import { createQuestionEditorLease, type QuestionEditorLease } from "./plugin-question-editor";
 import { PluginQuestionPresentation, questionMountContext } from "./plugin-question-slots";
@@ -163,11 +165,11 @@ export function PluginQuestionDockContent({ viewReader, snapshot, chatId, draft,
 						<PathInput ref={thinking} value={draft.thinking} onValueChange={value => { draft.thinking = value; render(); }} onKeyDown={event => {
 							if (composingQuestionKey(event) || pluginQuestionKeySuppressed(event)) return;
 							if (!isInteractionScopeEligible(event.currentTarget, controller)) return;
-							if (event.key === "Enter" && !event.altKey && (!event.shiftKey || event.metaKey || event.ctrlKey)) { event.preventDefault(); void submit(); }
+							if (event.key === "Enter" && !event.altKey && (!event.shiftKey || event.metaKey || event.ctrlKey) && enterMaySend(event)) { event.preventDefault(); void submit(); }
 						}} className="field-sizing-content lh-input max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground/70" placeholder="Your thinking" />
 					</>}
 					<div className="flex items-center justify-between gap-2 p-1">
-						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">↵ submits · ⇧↵ newline</span>
+						<EnterHint />
 						{unavailable && <Button type="button" variant="ghost" disabled={!ready || submitting} onClick={() => { if (latch.current) return; latch.current = true; void finishDictation().then(dismiss).catch(() => {}).finally(() => { latch.current = false; }); }}>Dismiss question</Button>}
 						<Button type="submit" disabled={!canSubmit} className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium">Submit answer</Button>
 					</div>

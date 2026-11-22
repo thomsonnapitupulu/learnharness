@@ -6,6 +6,8 @@ import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
+import { EnterHint } from "@/components/enter-hint";
+import { enterMaySend } from "@/lib/touch-keyboard";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { PathInput, pathInputClassName } from "@/components/path-input";
@@ -1148,7 +1150,7 @@ function QuestionDockForm({
 								}
 								// Chat convention: Enter submits, Shift+Enter is a newline;
 								// ⌘/Ctrl+Enter also submits (universal across the app).
-								if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
+								if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey) && enterMaySend(e)) {
 									e.preventDefault();
 									submit();
 								}
@@ -1179,7 +1181,7 @@ function QuestionDockForm({
 								// THE STANDARD CHORD (owner round 5, 2026-10-05): Enter
 								// submits, Shift+Enter is a newline, ⌘/Ctrl+Enter works
 								// too — identical to the practice dock and the composer.
-								if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+								if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey) && enterMaySend(e)) {
 									e.preventDefault();
 									submit();
 								}
@@ -1194,9 +1196,9 @@ function QuestionDockForm({
 						/>
 					)}
 					<div className="flex items-center justify-between gap-2 p-1">
-						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
-								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
-						</span>
+						{compactionRunning
+							? <span aria-hidden className="pl-1.5 text-xs text-muted-foreground">compacting session…</span>
+							: <EnterHint />}
 						<Button
 							type="submit"
 							disabled={!canSubmit || compactionRunning || preparing}

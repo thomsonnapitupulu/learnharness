@@ -16,6 +16,23 @@
 	}
 }
 
+/* A 44px touch target around a smaller control (mobile epic, story 5a). A finger
+   needs about 44px, and a 24px icon button that must stay 24px to look right
+   gets an invisible ::after that reaches 44px in each direction in which the
+   control is smaller (none in which it is already bigger). Only where the main
+   pointer is a finger. The control needs a position: add `relative` (or it is
+   already absolute or fixed). Nothing else about its layout changes. */
+@utility touch-target {
+	@media (pointer: coarse) {
+		&::after {
+			content: "";
+			position: absolute;
+			inset-block: min(0px, calc((100% - 44px) / 2));
+			inset-inline: min(0px, calc((100% - 44px) / 2));
+		}
+	}
+}
+
 /*
  * THE SKIN — wave 5. Design tokens, the single place to restyle the app.
  *
