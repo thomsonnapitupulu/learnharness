@@ -106,6 +106,7 @@ test("on a computer the sidebar still opens from the saved choice, and a toggle 
 	await f.press(f.toggleButton());
 	assert.equal(f.isOpen(), false);
 	assert.deepEqual(f.writes, [[KEY, "0"]]);
+	assert.equal(f.aside().hasAttribute("inert"), false, "the computer's closed sidebar is as it was");
 });
 
 test("on a phone the drawer starts closed whatever the computer had saved", async () => {
@@ -114,6 +115,7 @@ test("on a phone the drawer starts closed whatever the computer had saved", asyn
 	assert.match(f.aside().className, /\bw-0\b/);
 	assert.doesNotMatch(f.aside().className, /shadow/, "a closed drawer casts no shadow");
 	assert.equal(f.backdrop(), null);
+	assert.equal(f.aside().hasAttribute("inert"), true, "nothing in a closed drawer takes focus or is read out");
 	assert.equal(f.toggleButton().getAttribute("aria-hidden"), "false", "the menu button is there to open it");
 	assert.deepEqual(f.queries, ["(max-width: 767px)"], "the same 768px line the max-md: styles use");
 });
@@ -125,6 +127,7 @@ test("the menu button opens the drawer over the page with a backdrop, and saves 
 	assert.match(f.aside().className, /\bfixed\b/);
 	assert.match(f.aside().className, /w-\[min\(20rem,85vw\)\]/);
 	assert.ok(f.backdrop(), "a dimmed backdrop appears behind the drawer");
+	assert.equal(f.aside().hasAttribute("inert"), false, "an open drawer is live");
 	assert.equal(f.toggleButton().getAttribute("aria-hidden"), "false", "the title does not slide: the toggle keeps its place");
 	assert.doesNotMatch(f.toggleSlot().className, /\bw-0\b/);
 	await f.press(f.toggleButton());

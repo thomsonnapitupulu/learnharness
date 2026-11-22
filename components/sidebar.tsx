@@ -1238,6 +1238,8 @@ export function SidebarFrame({ children }: { children: React.ReactNode }) {
 					phone ? cn("fixed inset-y-0 left-0 z-50", open ? "w-[min(20rem,85vw)] shadow-2xl" : "w-0") : open ? "w-72" : "w-0",
 				)}
 				aria-hidden={!open}
+				// A closed drawer is off screen, so nothing in it may take focus or be read out.
+				inert={phone && !open}
 				data-testid="sidebar"
 				onTouchStart={phone ? (e) => { swipeFrom.current = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY }; } : undefined}
 				onTouchEnd={phone ? (e) => {
