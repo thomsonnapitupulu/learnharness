@@ -6,11 +6,13 @@ const https = require("node:https");
 /**
  * Any HTTP response is ready: a Next development error page must remain visible.
  * A single total deadline also bounds connected servers that never send headers.
+ * `ready` can say that some answers do not count (a hosted server's proxy answers 502 while the app behind it is
+ * down): those are tried again until the deadline. `label` is how the error names what it waited for.
  * @param {string} url
- * @param {{signal?: AbortSignal, timeoutMs?: number, retryMs?: number}} [options]
+ * @param {{signal?: AbortSignal, timeoutMs?: number, retryMs?: number, ready?: (statusCode: number) => boolean, label?: string}} [options]
  * @returns {Promise<void>}
  */
-async function waitForDevServer(url, { signal, timeoutMs = 30000, retryMs = 200 } = {}) {
+async function waitForDevServer(url, { signal, timeoutMs = 30000, retryMs = 200, ready = () => true, label = "Development server" } = {}) {
 	const target = new URL(url);
 	const transport = target.protocol === "http:" ? http : target.protocol === "https:" ? https : null;
 	if (!transport) throw new Error("Development server URL must use HTTP or HTTPS");
@@ -31,14 +33,18 @@ async function waitForDevServer(url, { signal, timeoutMs = 30000, retryMs = 200 
 		};
 		const abort = () => finish(signal.reason instanceof Error ? signal.reason : new Error("Development server startup cancelled"));
 		const deadline = setTimeout(() => finish(new Error(
-			`Development server ${url} did not respond within ${timeoutMs}ms`, { cause: lastError },
+			`${label} ${url} did not respond within ${timeoutMs}ms`, { cause: lastError },
 		)), timeoutMs);
 		const attempt = () => {
 			if (settled) return;
 			const request = transport.get(target, { agent: false }, response => {
 				response.on("error", () => {}); // Closing an unneeded response is intentional.
 				response.resume();
-				finish();
+				if (ready(response.statusCode ?? 0)) return finish();
+				lastError = new Error(`answered ${response.statusCode}`);
+				activeRequest = undefined;
+				request.destroy();
+				retryTimer = setTimeout(attempt, retryMs);
 			});
 			activeRequest = request;
 			request.once("error", error => {

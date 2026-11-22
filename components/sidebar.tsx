@@ -100,6 +100,12 @@ declare global {
 			onOpenSettings?: (cb: (section: string) => void) => () => void;
 			takeStartupMessage?: () => Promise<StartupMessageOffer | null>;
 			dismissStartupMessage?: (id: string) => Promise<boolean>;
+			/** Settings → General → Server (electron/server-setting.cjs). Absent in the dev shell and the browser.
+			 *  set() resolves { ok: true } just before the app restarts; null asks for this computer. */
+			server?: {
+				get: () => Promise<{ mode: "local" | "remote"; address: string | null }>;
+				set: (address: string | null) => Promise<{ ok: true } | { ok: false; cancelled?: boolean; error?: string }>;
+			};
 		};
 	}
 }
