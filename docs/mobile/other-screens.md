@@ -26,7 +26,7 @@ Nothing changes at 768px or wider with a mouse, or in the desktop app: the "⋯"
 - `components/row-menu-button.tsx` (new), used by `components/sidebar.tsx` (session rows, the menu items) and `components/sidebar-folders.tsx` (folder rows: optional `onMenuButton` and `menuOpen`).
 - `components/settings/settings-dialog.tsx`, `theme-cards.tsx`, `appearance-section.tsx`, `model-menu.tsx`, `search-menu-list.tsx`, `access-settings.tsx`.
 - `components/graph-view.tsx` (node card Delete, Chains button), `components/notes-import.tsx` (Extract files button), `components/chain-table.tsx`, `components/extraction-coverage.tsx` (Extract button), `components/delete-node-dialog.tsx`, `components/delete-session-dialog.tsx`.
-- `tests/touch-menus.test.tsx` (new, 20 tests), plus one each in `tests/render-chain-table.test.tsx` and `tests/settings-dialog-interaction.test.tsx`.
+- `tests/touch-menus.test.tsx` (new, 19 tests), plus one each in `tests/render-chain-table.test.tsx` and `tests/settings-dialog-interaction.test.tsx`.
 
 ## Trying it
 
@@ -44,18 +44,22 @@ On a computer, as in [phone-shell.md](phone-shell.md): check out the branch, `np
 ![A node's card with Delete node…](screens/s6-node-card-phone.png)
 ![The chains table at 320 wide: search, add folder and close all fit](screens/s6-chains-320-phone.png)
 ![Settings on a phone: the sections as a row](screens/s6-settings-phone.png)
+![Appearance: the theme cards two across](screens/s6-settings-appearance-phone.png)
 ![The provider list, 44px rows](screens/s6-settings-add-provider-phone.png)
 ![Settings with a keyboard up: the window is the visible part, the key field above the keyboard](screens/s6-settings-keyboard-phone.png)
 
 ## Checked
 
-See the story's pull request for the exact runs.
+- **Tests**: 21 new ones (19 in `tests/touch-menus.test.tsx`, one each for the chains table and the Settings window). The whole suite passes except six tests and one test file that already fail on the epic on this machine (Node 22: `passive-tooltip`, `plugin-document-proxy`, `safe-fetch-connector`, `safe-fetch`, `subscription-auth`). `tsc` and `eslint` are clean. Breaking the code on purpose (removing the ⋯ button, the 44px areas, the phone frame, the node Delete) made the new tests fail every time.
+- **A production build, in a browser**, signed in through the login page, at 390 by 844, 360 by 640 and 320 by 568 with touch on: every page listed under "What the audit found" fits the real device width with nothing past the screen edge; the ⋯ button opens and closes each menu and every item has a 44px area; the node card's Delete opens the dialog and Cancel closes it without deleting; the chains table's bar fits at 320; Settings fills the screen, its eight sections and four plugin pages open, and with the keyboard stand-in up the window is the visible part and the focused field is above the keyboard; no page error in the console.
+- **On a computer (a mouse, 1280 by 800)**: no ⋯ button on any row, the node card has no Delete button (it is there, hidden), Settings is the 920px window, and the chains table's bar is as before.
+- **On the graph with touch**: one finger pans it, two fingers pinch-zoom it, and tapping a node opens its card. A drag that starts on a node **pans the graph** (it moved by the distance dragged); moving a single node by dragging it is mouse-only, as before.
 
-Not checked: a real iPhone or Android phone (the on-screen keyboard is a stand-in for `window.visualViewport`, as in story 5b; the notch and home-indicator insets are Chromium's emulation of them), the plugin editors, and a real touch-and-hold on a row.
+Not checked: a real iPhone or Android phone (the on-screen keyboard is a stand-in for `window.visualViewport`, as in story 5b; the notch and home-indicator insets are Chromium's emulation of them), a real touch-and-hold on a row, and the plugin editors (coding questions, drawing pad), which need a model to open.
 
 ## Open points
 
 - **Moving a session or folder into another folder is drag and drop only**, so it cannot be done on a phone (renaming, deleting and creating folders can). A "Move to…" item in the same menu would fix it; say if you want it.
 - **The chains table's checkboxes and expanders are 14px** (they are one shared component, with an alignment that depends on the size). Rows are 33px tall and it works with some care; a bigger hit area needs a change to that component.
 - **Settings' Keyboard section** lists computer shortcuts and means nothing on a phone, and the Agent section's rows are a little cramped at 320 wide.
-- **Dragging nodes on the graph** to reposition them is not touch-aware beyond what was there (pan and pinch work).
+- **Moving a single node on the graph** is mouse-only: with a finger, a drag that starts on a node pans the graph instead. Panning, pinching and tapping a node work. Say if repositioning nodes on a phone matters.
