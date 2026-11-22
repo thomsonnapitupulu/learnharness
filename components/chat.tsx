@@ -17,6 +17,7 @@ import { SetupDialog } from "@/components/setup-dialog";
 import { Hint } from "@/components/ui/hint";
 import { cn } from "@/lib/utils";
 import { SEND_KEY_INIT, useOnScreenKeyboard } from "@/lib/touch-keyboard";
+import { useSidebar } from "@/components/sidebar";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom";
 import {
@@ -45,7 +46,7 @@ import { createDockMorph, createDockWidthMorph } from "@/components/dock-morph";
 import { useAppearance } from "@/components/settings/appearance";
 import { dockContainerMax, layoutFontKey, questionCardGeometry, rootRem, type QuestionLayout } from "@/components/question-layout";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
-import { DictationBar, finishDictation, joinDictation, useDictation, type Dictation } from "@/components/dictation";
+import { DictationBar, DockDictationContext, finishDictation, joinDictation, useDictation, type Dictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
@@ -1126,6 +1127,9 @@ export function Chat({
 	 * has ever been posed (the fresh session's opening turn is owed, not
 	 * the move-on). Enter-on-empty and the Next chip both key on it. */
 	const onScreenKeys = useOnScreenKeyboard();
+	// On a phone the docks' footers carry the microphone (the stats row's strip is hidden there).
+	const dockDictation = { dictation, disabled: pluginOwnsDock && !pluginMicAvailable };
+	const { phone } = useSidebar();
 	const nextReady =
 		kind === "practice" &&
 		!pending &&
@@ -2050,6 +2054,7 @@ export function Chat({
 				    anchored to the dock block's top edge, so it rides every
 				    height morph (typing, a question growing the band, the
 				    fold) and NEVER overlaps the composer. */}
+				<DockDictationContext.Provider value={dockDictation}>
 				<DockOverlay
 					viewReader={inputViewReader}
 					viewTargets={surfaceTarget ? { text: textTarget()!, answer: builtinTarget, thinking: thinkingTarget(), pluginQuestion: pluginQuestionTarget(), pluginProblem: pluginProblemTarget() } : undefined}
@@ -2168,9 +2173,10 @@ export function Chat({
 						send();
 					}}
 				/>
+				</DockDictationContext.Provider>
 				</Conversation>
 				{sideThread.state?.mode === "panel" && (
-					<SideThreadPanel>
+					<SideThreadPanel onClose={closeSideThread}>
 						<SideThreadBody
 							key={sideThread.state.threadId}
 							state={sideThread.state}

@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { keyboardCover } from "@/lib/visual-viewport";
 import { INTERACTION_LAYER_Z_BASE } from "./host-dialog";
 import { InteractionLayerOwner, useInteractionLayer, useInteractionLayers, type CloseOutcome, type CloseReason } from "./interaction-layers";
 
@@ -72,12 +73,13 @@ export interface MenuPlacement {
  *  room when there is room; the floor keeps it usable when there isn't. */
 export function computeMenuPlacement(
 	rect: { top: number; bottom: number; left: number; right: number },
-	viewport: { width: number; height: number },
+	viewport: { width: number; height: number; /** the strip at the bottom a phone's keyboard covers */ hiddenBottom?: number },
 	contentHeight: number,
 	preferredSide: MenuSide,
 	align: MenuAlign,
 ): MenuPlacement {
-	const availDown = viewport.height - EDGE - (rect.bottom + GAP);
+	const visible = viewport.height - (viewport.hiddenBottom ?? 0);
+	const availDown = visible - EDGE - (rect.bottom + GAP);
 	const availUp = rect.top - GAP - EDGE;
 	// contentHeight ≤ 0 (nothing measured yet) keeps the preferred side —
 	// the hidden first pass re-measures and decides with real numbers.
@@ -90,7 +92,7 @@ export function computeMenuPlacement(
 		}
 	}
 	const avail = side === "down" ? availDown : availUp;
-	const maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail));
+	const maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * visible, avail));
 	const horizontal: Record<string, number> =
 		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
 	const vertical: Record<string, number> =
@@ -231,7 +233,7 @@ export function MenuShell({
 			if (!rect || !menuRef.current) return;
 			const p = computeMenuPlacement(
 				rect,
-				{ width: window.innerWidth, height: window.innerHeight },
+				{ width: window.innerWidth, height: window.innerHeight, hiddenBottom: keyboardCover() },
 				menuRef.current.scrollHeight,
 				preferredSide,
 				align,
@@ -245,10 +247,13 @@ export function MenuShell({
 		};
 		window.addEventListener("scroll", rePlace, true);
 		window.addEventListener("resize", rePlace);
+		// A phone's keyboard comes and goes without resizing the window.
+		window.visualViewport?.addEventListener("resize", rePlace);
 		return () => {
 			cancelAnimationFrame(raf);
 			window.removeEventListener("scroll", rePlace, true);
 			window.removeEventListener("resize", rePlace);
+			window.visualViewport?.removeEventListener("resize", rePlace);
 		};
 	}, [anchorRef, anchorTestid, preferredSide, align]);
 

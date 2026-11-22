@@ -8,7 +8,7 @@ import type { QuestionRendererRegistration } from "./plugin-manager";
 import { usePlugins } from "./plugins";
 import { QuestionDockBar } from "./question-dock";
 import { PathInput } from "./path-input";
-import { finishDictation, joinDictation, usePluginQuestionDictationTarget } from "./dictation";
+import { DockDictationNote, DockMic, finishDictation, joinDictation, usePluginQuestionDictationTarget } from "./dictation";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { useEnterSubmits } from "./enter-submits";
@@ -157,7 +157,7 @@ export function PluginQuestionDockContent({ viewReader, snapshot, chatId, draft,
 				<div ref={editor} className={unavailable || failed ? "hidden" : "min-w-0"} />
 			</div>
 			{/* Plugin DOM is intentionally outside the footer's native form. */}
-			<form onSubmit={event => { event.preventDefault(); void submit(); }} className="border-t border-border/60 p-1.5">
+			<form data-dock-footer="" onSubmit={event => { event.preventDefault(); void submit(); }} className="border-t border-border/60 p-1.5">
 				<div data-testid={snapshot.showThinking ? "thinking-field" : undefined}
 					className={snapshot.showThinking ? "rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50" : undefined}>
 					{snapshot.showThinking && <>
@@ -168,10 +168,12 @@ export function PluginQuestionDockContent({ viewReader, snapshot, chatId, draft,
 							if (event.key === "Enter" && !event.altKey && (!event.shiftKey || event.metaKey || event.ctrlKey) && enterMaySend(event)) { event.preventDefault(); void submit(); }
 						}} className="field-sizing-content lh-input max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground/70" placeholder="Your thinking" />
 					</>}
-					<div className="flex items-center justify-between gap-2 p-1">
-						<EnterHint />
+					<DockDictationNote className="px-2.5 pt-1" />
+					<div className="flex items-center justify-between gap-2 p-1 phone:flex-wrap">
+						<EnterHint className="phone:hidden" />
 						{unavailable && <Button type="button" variant="ghost" disabled={!ready || submitting} onClick={() => { if (latch.current) return; latch.current = true; void finishDictation().then(dismiss).catch(() => {}).finally(() => { latch.current = false; }); }}>Dismiss question</Button>}
-						<Button type="submit" disabled={!canSubmit} className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium">Submit answer</Button>
+						<DockMic />
+						<Button type="submit" disabled={!canSubmit} className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium phone:h-12 phone:flex-1 phone:rounded-[10px] phone:text-base">Submit answer</Button>
 					</div>
 				</div>
 			</form>

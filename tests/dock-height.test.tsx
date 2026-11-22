@@ -35,7 +35,7 @@ Object.assign(globalThis, {
 // dock import would select the hook's SSR effect before this setup ever runs.
 const { QuestionDock } = await import("../components/question-dock.tsx");
 const { PracticeDock } = await import("../components/practice-dock.tsx");
-const { dockHeightBudget, minContentHeight, regionChrome, syncDockHeight, useDockHeight, forwardDockWheel } = await import("../components/dock-height.ts");
+const { dockHeightBudget, minContentHeight, regionChrome, revealFocused, syncDockHeight, useDockHeight, forwardDockWheel } = await import("../components/dock-height.ts");
 
 const normal = {
 	columnHeight: 700, outsideHeight: 60, beforeShellHeight: 0,
@@ -382,5 +382,139 @@ describe("wheel routing — question, short-window content, then transcript", ()
 		question.style.overflowY = "hidden";
 		assert.equal(wheel(-20), true, "hidden and visible boxes are not scroll containers");
 		assert.equal(wheel(0), false);
+	});
+});
+
+// The phone keyboard (mobile epic, story 5b). linkedom has no focus model and no layout: the focused element is
+// faked, and each box says where it is, moving up as the scrollers it sits in are scrolled, as a real layout does.
+type Box = { top: number; bottom: number };
+const scrollOf = (el: HTMLElement) => (el as unknown as { scrollTop: number }).scrollTop;
+const setScroll = (el: HTMLElement, value: number) => { (el as unknown as { scrollTop: number }).scrollTop = value; };
+const place = <T extends HTMLElement>(el: T, { top, bottom }: Box, scrolledBy: HTMLElement[] = []): T => {
+	Object.defineProperty(el, "getBoundingClientRect", { configurable: true, value: () => {
+		const moved = scrolledBy.reduce((sum, scroller) => sum + scrollOf(scroller), 0);
+		return { top: top - moved, bottom: bottom - moved, height: bottom - top, left: 0, right: 100, width: 100, x: 0, y: top - moved, toJSON() {} };
+	} });
+	return el;
+};
+async function withFocus<T>(el: Element | null, keyboard: boolean, run: () => T | Promise<T>): Promise<T> {
+	Object.defineProperty(document, "activeElement", { configurable: true, get: () => el });
+	if (keyboard) document.documentElement.setAttribute("data-lh-keyboard", ""); else document.documentElement.removeAttribute("data-lh-keyboard");
+	try { return await run(); } finally {
+		delete (document as unknown as Record<string, unknown>).activeElement;
+		document.documentElement.removeAttribute("data-lh-keyboard");
+	}
+}
+/** A dock: the viewport (200px visible, 100 to 300), a question region in it and a footer with a field. */
+function dockParts() {
+	const viewport = document.createElement("div");
+	const region = document.createElement("div"); region.setAttribute("data-dock-scroll-area", "");
+	const answer = document.createElement("button");
+	const footer = document.createElement("form"); footer.setAttribute("data-dock-footer", "");
+	const field = document.createElement("div"); field.setAttribute("contenteditable", "true");
+	region.append(answer); footer.append(field); viewport.append(region, footer);
+	document.body.append(viewport);
+	setScroll(viewport, 0); setScroll(region, 0);
+	place(viewport, { top: 100, bottom: 300 });
+	return { viewport, region, answer, footer, field, done: () => viewport.remove() };
+}
+
+describe("revealFocused: the field being typed in stays in view above the phone keyboard", () => {
+	it("a footer field brings the footer in, Submit included, with a little room below", async () => {
+		const d = dockParts();
+		try {
+			place(d.footer, { top: 350, bottom: 470 }, [d.viewport]); place(d.field, { top: 360, bottom: 420 }, [d.viewport]);
+			await withFocus(d.field, true, () => revealFocused(d.viewport, true));
+			assert.equal(scrollOf(d.viewport), 470 + 8 - 300, "the footer's bottom lands 8px above the bottom edge");
+		} finally { d.done(); }
+	});
+	it("a footer taller than the room shows its bottom (the caret and Submit) and stays there on the next look", async () => {
+		const d = dockParts();
+		try {
+			place(d.footer, { top: 350, bottom: 650 }, [d.viewport]); place(d.field, { top: 360, bottom: 540 }, [d.viewport]);
+			await withFocus(d.field, true, () => revealFocused(d.viewport, true));
+			assert.equal(scrollOf(d.viewport), 650 + 8 - 300);
+			await withFocus(d.field, true, () => revealFocused(d.viewport, true));
+			assert.equal(scrollOf(d.viewport), 650 + 8 - 300, "looking again does not scroll back up to the footer's top");
+		} finally { d.done(); }
+	});
+	it("scrolls back up to a focused element that is above the visible part", async () => {
+		const d = dockParts();
+		try {
+			setScroll(d.viewport, 100); place(d.answer, { top: 140, bottom: 180 }, [d.viewport]);
+			await withFocus(d.answer, true, () => revealFocused(d.viewport, true));
+			assert.equal(scrollOf(d.viewport), 100 - (100 - 40), "the element's top meets the top edge");
+		} finally { d.done(); }
+	});
+	it("leaves the scroll alone when the footer already shows", async () => {
+		const d = dockParts();
+		try {
+			setScroll(d.viewport, 30); place(d.footer, { top: 180, bottom: 310 }, [d.viewport]); place(d.field, { top: 190, bottom: 250 }, [d.viewport]);
+			await withFocus(d.field, true, () => revealFocused(d.viewport, true));
+			assert.equal(scrollOf(d.viewport), 30);
+		} finally { d.done(); }
+	});
+	it("does nothing without a keyboard (a computer's short window scrolls as it always did)", async () => {
+		const d = dockParts();
+		try {
+			place(d.footer, { top: 350, bottom: 470 }, [d.viewport]); place(d.field, { top: 360, bottom: 420 }, [d.viewport]);
+			await withFocus(d.field, false, () => revealFocused(d.viewport, true));
+			assert.equal(scrollOf(d.viewport), 0);
+		} finally { d.done(); }
+	});
+	it("does nothing when the focus is not inside the dock", async () => {
+		const d = dockParts();
+		const elsewhere = document.createElement("input"); document.body.append(elsewhere);
+		try {
+			place(elsewhere, { top: 500, bottom: 540 });
+			await withFocus(elsewhere, true, () => revealFocused(d.viewport, true));
+			await withFocus(null, true, () => revealFocused(d.viewport, true));
+			assert.equal(scrollOf(d.viewport), 0);
+		} finally { d.done(); elsewhere.remove(); }
+	});
+	it("when the footer stays pinned, only the question's own scroll area moves, and only for what is inside it", async () => {
+		const d = dockParts();
+		try {
+			place(d.region, { top: 100, bottom: 160 }); place(d.answer, { top: 180, bottom: 220 }, [d.region]);
+			place(d.footer, { top: 350, bottom: 470 }); place(d.field, { top: 360, bottom: 420 });
+			await withFocus(d.answer, true, () => revealFocused(d.viewport, false));
+			assert.equal(scrollOf(d.region), 220 + 8 - 160, "the option is scrolled into the question's area (100 to 160)");
+			assert.equal(scrollOf(d.viewport), 0, "the viewport does not scroll");
+			await withFocus(d.field, true, () => revealFocused(d.viewport, false));
+			assert.equal(scrollOf(d.viewport), 0, "a field in the pinned footer needs no scrolling");
+		} finally { d.done(); }
+	});
+
+	it("is applied after every measure: with the keyboard up, a dock that scrolls as one piece shows its thinking field and Submit", async () => {
+		await withFixture(async (host, render) => {
+			sizes.column = 292; // too short to pin the footer
+			await render();
+			const viewport = part(host, "viewport");
+			assert.equal(viewport.style.overflowY, "auto", "this is the scroll-as-one-piece mode");
+			const footer = host.querySelector<HTMLElement>("[data-dock-footer]")!;
+			const field = footer.querySelector<HTMLElement>('[role="textbox"]')!;
+			assert.ok(field, "the question dock's thinking field is inside its marked footer");
+			setScroll(viewport, 0);
+			place(viewport, { top: 0, bottom: 200 }); place(footer, { top: 300, bottom: 420 }, [viewport]); place(field, { top: 310, bottom: 370 }, [viewport]);
+			await withFocus(field, true, async () => { await act(async () => observers.at(-1)!.callback()); });
+			assert.equal(scrollOf(viewport), 420 + 8 - 200, "the keyboard came up: field and Submit are brought into view");
+			setScroll(viewport, 0);
+			await withFocus(field, false, async () => { await act(async () => observers.at(-1)!.callback()); });
+			assert.equal(scrollOf(viewport), 0, "no keyboard, no scrolling");
+		});
+	});
+	it("is applied after every measure: with the footer pinned, a focused option in the question area stays inside it", async () => {
+		await withFixture(async (host, render) => {
+			await render(); // 700px column: the question's own area scrolls
+			const region = host.querySelector<HTMLElement>("[data-dock-scroll-area]")!;
+			const viewport = part(host, "viewport");
+			assert.equal(viewport.style.overflowY, "visible", "this is the pinned-footer mode");
+			const option = document.createElement("button"); region.append(option);
+			setScroll(region, 0); setScroll(viewport, 0);
+			place(option, { top: 650, bottom: 690 }, [region]);
+			await withFocus(option, true, async () => { await act(async () => observers.at(-1)!.callback()); });
+			assert.equal(scrollOf(region), 690 + 8 - sizes.question!, "the region (600px tall in this fixture) scrolls to the option");
+			assert.equal(scrollOf(viewport), 0);
+		});
 	});
 });

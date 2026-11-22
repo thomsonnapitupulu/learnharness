@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, type RefObject } from "react";
+import { keyboardIsUp } from "@/lib/visual-viewport";
 
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -145,6 +146,31 @@ export function syncDockHeight(elements: DockHeightElements, expanded: boolean) 
 	return budget;
 }
 
+/** Room kept below what is revealed, in px. */
+const REVEAL_GAP = 8;
+
+/** Phone with the keyboard up (mobile epic, story 5b): keep what the learner is
+ * typing in view. The browser scrolls a field into view when it takes focus,
+ * but the screen only shrinks to the area above the keyboard a moment later,
+ * and a dock too short to pin its footer (`scrollWholeContent`) scrolls as one
+ * piece, from the top: the field and Submit would end up below the fold. So
+ * look again after every measure. A field in the footer brings the footer's
+ * bottom in (the caret and Submit, which is what the learner needs next, even
+ * when the whole footer is taller than the room); anything else comes into view. */
+export function revealFocused(viewport: HTMLElement, scrollWholeContent: boolean) {
+	const doc = viewport.ownerDocument;
+	const focused = doc.activeElement;
+	if (!keyboardIsUp(doc) || !(focused instanceof HTMLElement) || !viewport.contains(focused)) return;
+	// Whole-content mode scrolls the viewport; otherwise the question's own scroll area does.
+	const scroller = scrollWholeContent ? viewport : focused.closest<HTMLElement>(SCROLL_AREA);
+	if (!scroller) return;
+	const area = scroller.getBoundingClientRect();
+	const target = (focused.closest<HTMLElement>("[data-dock-footer]") ?? focused).getBoundingClientRect();
+	if (target.bottom + REVEAL_GAP > area.bottom) scroller.scrollTop += target.bottom + REVEAL_GAP - area.bottom;
+	// (A target taller than the room is only ever aligned at the bottom, or each look would undo the last.)
+	else if (target.top < area.top && target.height <= area.height) scroller.scrollTop -= area.top - target.top;
+}
+
 interface DockHeightRefs {
 	scrollRef: RefObject<HTMLElement | null>;
 	blockRef: RefObject<HTMLDivElement | null>;
@@ -177,7 +203,7 @@ export function useDockHeight({
 		const content = contentRef.current;
 		if (!column || !block || !viewport || !body || !shell || !content) return;
 		onScrollbarInset(Math.round((column.offsetWidth - column.clientWidth) / 2));
-		if (enabled) syncDockHeight({ column, block, viewport, body, shell, content }, expanded);
+		if (enabled) revealFocused(viewport, syncDockHeight({ column, block, viewport, body, shell, content }, expanded).scrollWholeContent);
 		else {
 			block.style.removeProperty("--dock-max-h");
 			viewport.style.removeProperty("max-height");
