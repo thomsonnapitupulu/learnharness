@@ -9,10 +9,14 @@ import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Root } from "react-dom/client";
-import { Composer, ChatSessionComposer } from "../components/composer.tsx";
-import { DictationMic, DICTATION_KEYLESS, type Dictation } from "../components/dictation.tsx";
+import { Composer, ChatSessionComposer, nextProblemPlaceholder } from "../components/composer.tsx";
+import { DictationMic, DictationNote, DICTATION_KEYLESS, type Dictation } from "../components/dictation.tsx";
 import { EnterHint } from "../components/enter-hint.tsx";
-import { enterMaySend, onScreenKeyboard } from "../lib/touch-keyboard.ts";
+import { enterMaySend, onScreenKeyboard, SEND_KEY_INIT, useOnScreenKeyboard } from "../lib/touch-keyboard.ts";
+import { MarkdownTable } from "../components/md-blocks.tsx";
+import { commentKeyAction } from "../components/citation-comment-editor.tsx";
+import { capturePluginQuestionKey, ownPluginQuestionKeys, pluginQuestionKeySuppressed } from "../components/plugin-question-keys.ts";
+import { ReadingThinkingField } from "../components/reading-thinking.tsx";
 
 // Mobile epic, story 5a: Enter is a newline on an on-screen keyboard, hover-only
 // buttons are visible on a touch screen, small controls get a 44px target, and
@@ -57,6 +61,7 @@ function press(target: Element, init: { key: string; shiftKey?: boolean; metaKey
 }
 
 const keys = (over: Partial<{ metaKey: boolean; ctrlKey: boolean }> = {}) => ({ metaKey: false, ctrlKey: false, ...over });
+const chatUsesSendKey = /new KeyboardEvent\("keydown", SEND_KEY_INIT\)/.test(fs.readFileSync(path.resolve(import.meta.dirname, "../components/chat.tsx"), "utf8"));
 
 describe("Enter on an on-screen keyboard", () => {
 	it("a finger is the main pointer on a phone or tablet, and only then", () => {
@@ -107,23 +112,102 @@ describe("Enter on an on-screen keyboard", () => {
 		assert.deepEqual(sent, ["send", "send"], "the send button's form submit");
 	});
 
-	it("every field that sends on Enter asks first (a field added without the check fails here)", () => {
+	it("every file that handles the Enter key is classified: fields that send on Enter ask first, the rest are listed", () => {
 		const root = path.resolve(import.meta.dirname, "..");
-		const expected: Record<string, number> = {
+		// Fields where Enter sends or acts (a new line is wanted on an on-screen keyboard): file -> calls of enterMaySend(.
+		const asksFirst: Record<string, number> = {
 			"components/composer.tsx": 1, "components/home.tsx": 1, "components/practice-dock.tsx": 1,
 			"components/question-dock.tsx": 2, "components/side-thread.tsx": 1, "components/plugin-question-dock.tsx": 1,
+			"components/reading-thinking.tsx": 1, "components/plugin-question-keys.ts": 1,
+			"components/citation-comment-editor.tsx": 1, // through commentKeyAction
 		};
-		for (const [file, count] of Object.entries(expected)) {
+		// Single-line fields, menus and window-level listeners that skip typing surfaces: Enter there is not "send".
+		const elsewhere = [
+			"components/chat.tsx", "components/dictation-language.tsx", "components/enter-submits.ts", "components/session-find.tsx",
+			"components/settings/agent-section.tsx", "components/settings/controls.tsx", "components/settings/keys-section.tsx",
+			"components/settings/model-menu.tsx", "components/settings/search-menu-list.tsx", "components/setup-dialog.tsx",
+			"components/sidebar.tsx", "components/source-folder-tree.tsx", "src/core/plugin-questions.ts",
+			"lib/touch-keyboard.ts", // the helper itself, and the synthetic Ctrl+Enter
+		];
+		const found: string[] = [];
+		const walk = (dir: string) => {
+			for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+				const rel = `${dir}/${entry.name}`;
+				if (entry.isDirectory()) walk(rel);
+				else if (/\.tsx?$/.test(entry.name) && /["']Enter["']/.test(fs.readFileSync(path.join(root, rel), "utf8"))) found.push(rel);
+			}
+		};
+		for (const dir of ["components", "lib", "src"]) walk(dir);
+		const known = new Set([...Object.keys(asksFirst), ...elsewhere]);
+		assert.deepEqual(found.filter((file) => !known.has(file)), [], "a file that handles Enter must ask enterMaySend first (add it to asksFirst) or be listed in elsewhere");
+		assert.deepEqual([...known].filter((file) => !found.includes(file)), [], "a listed file no longer handles Enter: remove it from the lists");
+		for (const [file, count] of Object.entries(asksFirst)) {
 			const source = fs.readFileSync(path.join(root, file), "utf8");
 			assert.equal(source.split("enterMaySend(").length - 1, count, `${file}: enterMaySend( calls`);
-			assert.match(source, /touch-keyboard"/, `${file} imports the helper`);
+			assert.match(source, /touch-keyboard(\.ts)?"/, `${file} imports the helper`);
 		}
+	});
+
+	it("the synthetic key the citation popover uses to send into a field is Ctrl+Enter, which sends on both kinds of keyboard", () => {
+		for (const kind of ["fine", "coarse"] as const) {
+			pointer(kind);
+			assert.equal(enterMaySend(SEND_KEY_INIT), true, kind);
+		}
+		assert.equal(SEND_KEY_INIT.key, "Enter");
+		assert.equal(chatUsesSendKey, true, "chat.tsx dispatches it");
+	});
+
+	it("a plugin editor's host default: Enter submits on a computer, is the editor's own new line on a touch screen, Cmd/Ctrl+Enter submits on both", () => {
+		let submits = 0;
+		const off = ownPluginQuestionKeys({ eligible: () => true, contains: () => true, key: () => "pass", cycle() {}, submit() { submits++; } });
+		const key = (extra = {}) => ({ key: "Enter", shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, isComposing: false, keyCode: 0, target: null, defaultPrevented: false, preventDefault(this: { defaultPrevented: boolean }) { this.defaultPrevented = true; }, ...extra }) as unknown as KeyboardEvent;
+		try {
+			pointer("fine");
+			const computer = key(); capturePluginQuestionKey(computer);
+			assert.equal(submits, 1); assert.equal(computer.defaultPrevented, true);
+			pointer("coarse");
+			const touch = key(); capturePluginQuestionKey(touch);
+			assert.equal(submits, 1, "nothing is submitted"); assert.equal(touch.defaultPrevented, false, "the editor keeps its own newline"); assert.equal(pluginQuestionKeySuppressed(touch), false);
+			capturePluginQuestionKey(key({ ctrlKey: true })); assert.equal(submits, 2, "Ctrl+Enter");
+			capturePluginQuestionKey(key({ metaKey: true })); assert.equal(submits, 3, "Cmd+Enter");
+		} finally { off(); }
+	});
+
+	it("the citation comment editor: Enter saves on a computer and is a new line on a touch screen; Cmd/Ctrl+Enter saves and sends on both", () => {
+		const enter = (extra = {}) => ({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, isComposing: false, ...extra });
+		pointer("fine");
+		assert.equal(commentKeyAction(enter()), "save");
+		assert.equal(commentKeyAction(enter({ ctrlKey: true })), "save-send");
+		pointer("coarse");
+		assert.equal(commentKeyAction(enter()), null, "the native new line");
+		assert.equal(commentKeyAction(enter({ ctrlKey: true })), "save-send");
+		assert.equal(commentKeyAction(enter({ metaKey: true })), "save-send");
+		assert.equal(commentKeyAction({ ...enter(), key: "Escape" }), "cancel");
+	});
+
+	it("the reading-thinking field: Enter opens the waiting check on a computer and is a new line on a touch screen; Cmd+Enter opens it on both", async () => {
+		let opened = 0;
+		const host = await mount(<ReadingThinkingField value="" revision={0} onChange={() => {}} claim={false} onOpen={() => { opened++; }} />);
+		const editor = editorIn(host);
+		pointer("fine");
+		await act(async () => { press(editor, { key: "Enter" }); });
+		assert.equal(opened, 1);
+		pointer("coarse");
+		let event!: Event;
+		await act(async () => { event = press(editor, { key: "Enter" }); });
+		assert.equal(opened, 1, "nothing opens");
+		assert.equal(event.defaultPrevented, false, "the field keeps its newline");
+		await act(async () => { press(editor, { key: "Enter", metaKey: true }); });
+		assert.equal(opened, 2, "Cmd+Enter");
 	});
 
 	it("the line beside Submit says what Enter does for both kinds of keyboard", () => {
 		const html = renderToStaticMarkup(<EnterHint />);
 		assert.match(html, /<span class="pointer-coarse:hidden">↵ submits · ⇧↵ newline<\/span>/);
 		assert.match(html, /<span class="hidden pointer-coarse:inline">↵ new line<\/span>/);
+		const busy = renderToStaticMarkup(<EnterHint compacting />);
+		assert.match(busy, /compacting session…/);
+		assert.doesNotMatch(busy, /new line|submits/, "while compacting the line says only that");
 	});
 });
 
@@ -142,6 +226,14 @@ describe("the microphone on a phone", () => {
 		assert.match(html, /class="[^"]*\bhidden\b[^"]*\bsize-11\b[^"]*\bphone:flex\b/);
 		assert.match(html, /aria-label="Start dictation"/);
 		assert.match(html, /aria-pressed="false"/);
+	});
+
+	it("why it failed shows as a line above the composer on a phone, because the strip that says so is hidden there", () => {
+		assert.equal(renderToStaticMarkup(<DictationNote dictation={fake()} />), "", "nothing when there is no error");
+		const html = renderToStaticMarkup(<DictationNote dictation={fake({ error: "Microphone permission was denied." })} className="px-3" />);
+		assert.match(html, /role="alert"/);
+		assert.match(html, /class="[^"]*\bhidden\b[^"]*\bphone:block\b/, "shown only on a phone");
+		assert.match(html, /Microphone permission was denied\./);
 	});
 
 	it("says when it is recording, stopping, failed or unavailable", () => {
@@ -213,5 +305,70 @@ describe("touch targets and hover-only buttons", () => {
 
 	it("the stats row has no room for the dictation strip on a phone, so it hides there", () => {
 		assert.match(read("components/stats-bar.tsx"), /flex min-w-0 flex-1 items-center justify-center phone:hidden">\{dictationSlot\}/);
+	});
+});
+
+describe("what the independent test found on a phone (story 5a)", () => {
+	const read = (file: string) => fs.readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8");
+
+	it("text that names a key follows the device: a computer on the server and at first, then the pointer, and a change of it", async () => {
+		function Probe() { return <span data-testid="keys">{useOnScreenKeyboard() ? "touch" : "computer"}</span>; }
+		pointer("coarse");
+		assert.match(renderToStaticMarkup(<Probe />), />computer</, "the server render never guesses touch, so hydration agrees");
+		let host = await mount(<Probe />);
+		assert.equal(host.querySelector('[data-testid="keys"]')!.textContent, "touch");
+		pointer("fine");
+		host = await mount(<Probe />);
+		assert.equal(host.querySelector('[data-testid="keys"]')!.textContent, "computer");
+
+		// A window that moves between a mouse and a touch screen.
+		const listeners = new Set<() => void>();
+		let coarse = false;
+		(window as unknown as Record<string, unknown>).matchMedia = (query: string) => ({
+			media: query,
+			get matches() { return coarse && query === "(pointer: coarse)"; },
+			addEventListener(_: string, fn: () => void) { listeners.add(fn); },
+			removeEventListener(_: string, fn: () => void) { listeners.delete(fn); },
+		});
+		host = await mount(<Probe />);
+		assert.equal(host.querySelector('[data-testid="keys"]')!.textContent, "computer");
+		coarse = true;
+		await act(async () => { for (const fn of listeners) fn(); });
+		assert.equal(host.querySelector('[data-testid="keys"]')!.textContent, "touch", "follows the change");
+		assert.equal(listeners.size, 1, "one listener while mounted");
+		await act(async () => { roots.splice(0).forEach(({ root, host }) => { root.unmount(); host.remove(); }); });
+		assert.equal(listeners.size, 0, "and none after");
+	});
+
+	it("the practice pause names the key that works: Enter on a computer, the arrow on a touch screen", () => {
+		assert.equal(nextProblemPlaceholder(false), "Ask anything, or press Enter for the next one.");
+		assert.equal(nextProblemPlaceholder(true), "Ask anything, or tap → for the next one.");
+		assert.match(read("components/chat.tsx"), /placeholder=\{nextReady \? nextProblemPlaceholder\(onScreenKeys\) : undefined\}/);
+		assert.match(read("components/chat.tsx"), /const onScreenKeys = useOnScreenKeyboard\(\);/);
+	});
+
+	it("on a phone the Next problem button is the arrow alone, so the text field keeps its width", () => {
+		const html = renderToStaticMarkup(<Composer busy={false} value="" onChange={() => {}} onSend={() => {}} onStop={() => {}} canSend={false} nextProblem onNext={() => {}} />);
+		const button = html.match(/<button[^>]*data-testid="next-problem-button"[^>]*>[\s\S]*?<\/button>/)![0];
+		assert.match(button, /aria-label="Next problem"/, "still named for a screen reader");
+		assert.match(button, /<span class="phone:hidden">Next problem<\/span>/, "the words go on a phone");
+		assert.match(button, /\bphone:w-11\b/);
+		assert.match(button, /\bphone:px-0\b/);
+		assert.doesNotMatch(button.replace(/<span class="phone:hidden">Next problem<\/span>/, ""), />Next problem</, "the words are not anywhere else");
+	});
+
+	it("the thinking toggle is 44px tall on a touch screen: a real height, since an edge row clips an overhang", () => {
+		assert.match(read("components/ai-elements/reasoning.tsx"), /relative touch-target flex w-full items-center gap-2 pointer-coarse:min-h-11 /);
+	});
+
+	it("the table's copy button leaves the table alone on a touch screen: it sits in a row above, at the right", () => {
+		const html = renderToStaticMarkup(<MarkdownTable><tbody><tr><td>cell</td></tr></tbody></MarkdownTable>);
+		const wrapper = html.match(/<div class="([^"]*)" data-testid="md-table">/)![1]!;
+		assert.match(wrapper, /\bpointer-coarse:flex\b/);
+		assert.match(wrapper, /\bpointer-coarse:flex-col\b/);
+		const corner = html.match(/<span class="([^"]*)"><button[^>]*data-testid="md-copy"/)![1]!;
+		assert.match(corner, /\babsolute top-1 right-1\b/, "over the corner with a mouse, as before");
+		assert.match(corner, /\bpointer-coarse:static\b/);
+		assert.match(corner, /\bpointer-coarse:self-end\b/);
 	});
 });

@@ -6,6 +6,7 @@ import { composingQuestionKey, pluginQuestionKeySuppressed } from "./plugin-ques
 import { PathInput } from "@/components/path-input";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
+import { enterMaySend } from "../lib/touch-keyboard";
 
 /**
  * The reading-thinking field (owner design 2026-10-03, "two questions per
@@ -97,8 +98,10 @@ export function ReadingThinkingField({
 					// 2026-10-06): while the check sits closed, plain Enter
 					// (and the universal ⌘/Ctrl+Enter) opens it — the dictation
 					// flush lands HERE first via the caller's finishDictation,
-					// so spoken thoughts ride along. Shift+Enter stays a newline.
-					if (e.key === "Enter" && onOpen !== undefined && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+					// so spoken thoughts ride along. Shift+Enter stays a newline, and
+					// so does Enter on an on-screen keyboard (story 5a): there ⌘/Ctrl+Enter
+					// or the reveal button opens it.
+					if (e.key === "Enter" && onOpen !== undefined && (!e.shiftKey || e.metaKey || e.ctrlKey) && enterMaySend(e)) {
 						e.preventDefault();
 						e.stopPropagation();
 						onOpen();

@@ -803,6 +803,14 @@ export function DictationMic({ dictation, disabled = false }: { dictation: Dicta
 	);
 }
 
+/** On a phone the strip that says why dictation failed is hidden (the mic
+ * button is 44px and has no room for words), so the reason is a line above the
+ * composer. Computers still read it in the strip. */
+export function DictationNote({ dictation, className }: { dictation: Dictation; className?: string }) {
+	if (!dictation.error) return null;
+	return <p role="alert" className={cn("hidden text-xs text-destructive phone:block", className)}>{dictation.error}</p>;
+}
+
 export function DictationBar({ dictation, disabled = false }: { dictation: Dictation; disabled?: boolean }) {
 	const { phase, error, levelRef, toggle, active, blocked } = dictation;
 	const click = useDictationClick(dictation);

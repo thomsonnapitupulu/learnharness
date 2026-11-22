@@ -5,7 +5,7 @@ import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
-import { DictationMic, type Dictation } from "@/components/dictation";
+import { DictationMic, DictationNote, type Dictation } from "@/components/dictation";
 import { enterMaySend } from "@/lib/touch-keyboard";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
@@ -40,6 +40,13 @@ export function enterAction(state: {
 	if (state.canSend) return "send";
 	if (state.nextProblem) return "next";
 	return "none";
+}
+
+/** The empty practice composer's hint (owner round 16: the placeholder IS the
+ *  hint). Enter is a newline on an on-screen keyboard, so there it points at the
+ *  green arrow button instead (short: it has to fit two lines beside the buttons). */
+export function nextProblemPlaceholder(onScreenKeys: boolean): string {
+	return onScreenKeys ? "Ask anything, or tap → for the next one." : "Ask anything, or press Enter for the next one.";
 }
 
 /**
@@ -173,6 +180,8 @@ export function Composer({
 	const ownInputRef = useRef<HTMLDivElement>(null);
 	const editorRef = inputRef ?? ownInputRef;
 	return (
+		<>
+		{dictation && <DictationNote dictation={dictation} className="px-3 pt-2" />}
 		<form
 			data-testid="composer"
 			className="flex items-end gap-1.5 p-1.5"
@@ -233,10 +242,12 @@ export function Composer({
 						type="submit"
 						data-testid="next-problem-button"
 						aria-label="Next problem"
-						className="flex h-10 pointer-coarse:h-11 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-success px-4 font-ui text-xs font-medium uppercase tracking-wide text-background transition-colors hover:bg-success/85"
+						// On a phone the label is dropped: with the microphone and Attach beside
+						// it, the wide button left the text field about 100px (story 5a test).
+						className="flex h-10 pointer-coarse:h-11 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-success px-4 font-ui text-xs font-medium uppercase tracking-wide text-background transition-colors hover:bg-success/85 phone:w-11 phone:px-0"
 					>
-						Next problem
-						<ArrowRightIcon className="size-4" />
+						<span className="phone:hidden">Next problem</span>
+						<ArrowRightIcon className="size-4 phone:size-5" />
 					</button>
 				) : (
 					<button
@@ -254,5 +265,6 @@ export function Composer({
 					</button>
 				)}
 		</form>
+		</>
 	);
 }

@@ -16,6 +16,7 @@ import { visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog";
 import { Hint } from "@/components/ui/hint";
 import { cn } from "@/lib/utils";
+import { SEND_KEY_INIT, useOnScreenKeyboard } from "@/lib/touch-keyboard";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom";
 import {
@@ -34,7 +35,7 @@ import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
 import { MalformedQuestion } from "@/components/malformed-question";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
-import { ChatSessionComposer } from "@/components/composer";
+import { ChatSessionComposer, nextProblemPlaceholder } from "@/components/composer";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
@@ -1124,6 +1125,7 @@ export function Chat({
 	 * kind, nothing active, nothing in flight, and at least one problem
 	 * has ever been posed (the fresh session's opening turn is owed, not
 	 * the move-on). Enter-on-empty and the Next chip both key on it. */
+	const onScreenKeys = useOnScreenKeyboard();
 	const nextReady =
 		kind === "practice" &&
 		!pending &&
@@ -2143,7 +2145,7 @@ export function Chat({
 							// applies.
 							nextProblem={nextReady}
 							onNext={sendNext}
-							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
+							placeholder={nextReady ? nextProblemPlaceholder(onScreenKeys) : undefined}
 						/>
 					}
 					onSubmitAnswer={(output) => {
@@ -2231,7 +2233,7 @@ export function Chat({
 						onSend={() => {
 							const input = citationEdit.input?.isConnected ? citationEdit.input : citeInput();
 							if (input === composerInputRef.current) onSend();
-							else if (input) requestAnimationFrame(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+							else if (input) requestAnimationFrame(() => input.dispatchEvent(new KeyboardEvent("keydown", SEND_KEY_INIT)));
 						}}
 					/>
 				)}

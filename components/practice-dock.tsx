@@ -200,9 +200,7 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
 				    field 10 − p-1 (4) = button 6. */}
 				<div className="flex items-center justify-between gap-2 p-1">
-					{compactionRunning
-						? <span aria-hidden className="pl-1.5 text-xs text-muted-foreground">compacting session…</span>
-						: <EnterHint />}
+					<EnterHint compacting={compactionRunning} />
 					<Button
 						type="button"
 						data-testid="practice-send"

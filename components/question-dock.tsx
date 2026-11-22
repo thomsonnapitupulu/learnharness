@@ -1196,9 +1196,7 @@ function QuestionDockForm({
 						/>
 					)}
 					<div className="flex items-center justify-between gap-2 p-1">
-						{compactionRunning
-							? <span aria-hidden className="pl-1.5 text-xs text-muted-foreground">compacting session…</span>
-							: <EnterHint />}
+						<EnterHint compacting={compactionRunning} />
 						<Button
 							type="submit"
 							disabled={!canSubmit || compactionRunning || preparing}
