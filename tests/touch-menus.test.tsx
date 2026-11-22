@@ -78,6 +78,12 @@ describe("the ⋯ button on a sidebar row", () => {
 		for (const c of ["absolute", "inset-y-0", "right-0", "w-11"]) assert.ok(cls.includes(c), c);
 	});
 
+	it("draws a ring when a keyboard has focus, because the app draws no outline anywhere else", () => {
+		const cls = classes(button());
+		for (const c of ["focus-visible:ring-2", "focus-visible:ring-inset", "focus-visible:ring-ring/50"]) assert.ok(cls.includes(c), c);
+		assert.match(read("app/globals.css"), /\*:focus-visible\s*\{\s*outline:\s*none;/, "the reset that makes the ring necessary");
+	});
+
 	it("hands the click to the row's code with itself as the anchor", async () => {
 		const seen: Array<{ anchor: unknown; testid: string | null }> = [];
 		const { doc, win } = await mount(<RowMenuButton label="Actions" open={false} testId="row-menu" onClick={(e) => { seen.push({ anchor: e.currentTarget, testid: e.currentTarget.getAttribute("data-testid") }); }} />);
@@ -201,6 +207,11 @@ describe("the graph on a phone", () => {
 		const cls = m.match(/className="([^"]*)"/)![1]!.split(/\s+/);
 		for (const c of ["hidden", "pointer-coarse:flex", "min-h-11", "w-full"]) assert.ok(cls.includes(c), c);
 		assert.match(graph, /onClick=\{\(\) => \{\s*setDeletingNode\(\{ id: ctxNode\.id, name: ctxNode\.name \}\);/, "the right-click menu still does the same");
+	});
+
+	it("the node card is never taller than the graph area and scrolls inside, so Delete node… stays in reach", () => {
+		const cls = graph.match(/<div\s+ref=\{cardRef\}[\s\S]*?className="([^"]*)"/)?.[1]?.split(/\s+/) ?? [];
+		for (const c of ["max-h-[calc(100%-1rem)]", "overflow-y-auto", "w-80", "max-w-[calc(100%-1rem)]"]) assert.ok(cls.includes(c), c);
 	});
 
 	it("the Chains and Extract files buttons get a 44px touch area", () => {

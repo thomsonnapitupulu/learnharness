@@ -77,6 +77,8 @@ export function computeMenuPlacement(
 	contentHeight: number,
 	preferredSide: MenuSide,
 	align: MenuAlign,
+	/** The menu's own width when known (0 = unknown: no sideways correction). */
+	menuWidth = 0,
 ): MenuPlacement {
 	const visible = viewport.height - (viewport.hiddenBottom ?? 0);
 	const availDown = visible - EDGE - (rect.bottom + GAP);
@@ -93,11 +95,23 @@ export function computeMenuPlacement(
 	}
 	const avail = side === "down" ? availDown : availUp;
 	const maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * visible, avail));
-	const horizontal: Record<string, number> =
+	// Across: keyed to the anchor's edge, then kept on the screen. A button
+	// that sits well in from the edge (a phone's Settings rows) would
+	// otherwise hang a wide menu off the other side, so the menu slides
+	// along the edge, and is never wider than the screen between its margins.
+	const maxWidth = Math.max(0, viewport.width - 2 * EDGE);
+	const width = Math.min(menuWidth, maxWidth);
+	let horizontal: Record<string, number> =
 		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
+	if (width > 0) {
+		const left = align === "right" ? rect.right - width : rect.left;
+		if (left < EDGE || left + width > viewport.width - EDGE) {
+			horizontal = { left: Math.min(Math.max(left, EDGE), viewport.width - EDGE - width) };
+		}
+	}
 	const vertical: Record<string, number> =
 		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
-	return { side, style: { ...horizontal, ...vertical }, maxHeight };
+	return { side, style: { ...horizontal, ...vertical, maxWidth }, maxHeight };
 }
 
 type AnchorRect = { top: number; bottom: number; left: number; right: number };
@@ -237,6 +251,7 @@ export function MenuShell({
 				menuRef.current.scrollHeight,
 				preferredSide,
 				align,
+				menuRef.current.offsetWidth || 0,
 			);
 			setPlaced(p);
 		};
