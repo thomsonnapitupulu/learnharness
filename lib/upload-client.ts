@@ -22,7 +22,11 @@ export function uploadFile(
 			if (xhr.status === 201 && typeof body?.path === "string") return resolve({ ok: true, path: body.path });
 			if (xhr.status === 401) return fail(`You were signed out. Sign in again, then attach ${file.name}.`);
 			if (xhr.status === 413) return fail(uploadTooLargeMessage(file.name));
-			fail(typeof body?.error === "string" ? body.error : `${file.name} could not be attached (error ${xhr.status}).`);
+			// Node gives up on a request that is still arriving after 5 minutes (a 64 MiB file needs about 1.8 Mbit/s).
+			if (xhr.status === 408) return fail(`${file.name} took longer than 5 minutes to send, so it was stopped. Try again on a faster connection, or with a smaller file.`);
+			const said = typeof body?.error === "string" ? body.error : "";
+			if (said) return fail(said.includes(file.name) ? said : `${file.name}: ${said}`);
+			fail(`${file.name} could not be attached (error ${xhr.status}).`);
 		};
 		xhr.onerror = () => fail(`${file.name} could not be sent. Check the connection and try again.`);
 		xhr.onabort = () => fail(`${file.name} was not attached.`);

@@ -378,6 +378,33 @@ describe("composer attach button", () => {
 		assert.equal(f.value, "readthis");
 	});
 
+	it("browser: every failure names the file, and a transfer that outlasts the server's 5 minutes says so", async () => {
+		const f = await fixture({ desktop: false });
+		await f.pick([f.file("slow.pdf")]);
+		await f.respond(0, 408, null);
+		assert.match(f.status, /slow\.pdf took longer than 5 minutes to send, so it was stopped\. Try again on a faster connection, or with a smaller file\./);
+		await f.pick([f.file("a.pdf")]);
+		await f.respond(1, 403, { error: "Cross-site writes are not allowed." });
+		assert.equal(f.status, "a.pdf: Cross-site writes are not allowed.");
+		await f.pick([f.file("b.pdf")]);
+		await f.respond(2, 500, { error: "The file could not be saved on the server." });
+		assert.equal(f.status, "b.pdf: The file could not be saved on the server.");
+		await f.pick([f.file("c.pdf")]);
+		await f.respond(3, 502, null);
+		assert.equal(f.status, "c.pdf could not be attached (error 502).");
+	});
+
+	it("browser: the progress panel does not announce every percent to a screen reader", async () => {
+		const f = await fixture({ desktop: false });
+		await f.pick([f.file("a.pdf")]);
+		const panel = f.doc.querySelector<HTMLElement>('[data-testid="attachment-popup"]')!;
+		assert.equal(panel.getAttribute("aria-live"), "off", "while sending");
+		assert.equal(f.doc.querySelector('[role="progressbar"]')!.getAttribute("aria-valuenow"), "0", "the bar still carries its value");
+		await f.respond(0, 500, { error: "The file could not be saved on the server." });
+		const notice = f.doc.querySelector<HTMLElement>('[data-testid="attachment-popup"]')!;
+		assert.equal(notice.getAttribute("aria-live"), null, "a failure is announced, as a status is");
+	});
+
 	it("browser: a file over 64 MiB is refused here, without a request", async () => {
 		const f = await fixture({ desktop: false });
 		const big = f.file("film.mov");

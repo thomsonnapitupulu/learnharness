@@ -82,7 +82,7 @@ function UploadRows({ rows }: { rows: { name: string; fraction: number }[] }) {
 				return (
 					<li key={index} className="flex flex-col gap-1">
 						<span className="flex justify-between gap-2"><span className="truncate text-foreground">{row.name}</span><span className="shrink-0 tabular-nums">{percent}%</span></span>
-						<div role="progressbar" aria-label={`Uploading ${row.name}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="h-1.5 overflow-hidden rounded-full bg-secondary">
+						<div role="progressbar" aria-label={`Uploading ${row.name}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="h-1.5 overflow-hidden rounded-full bg-foreground/15">
 							<div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${percent}%` }} />
 						</div>
 					</li>
@@ -226,6 +226,7 @@ export function AttachFilesButton({ editorRef }: { editorRef: React.RefObject<HT
 			</Hint>
 			{(open || notice || sending) && <AttachmentPopup anchorRef={buttonRef} rootRef={popupRef} open={open} close={() => setOpen(false)}><div ref={popupRef} role={open ? "menu" : "status"}
 				aria-label={open ? "Attach files or a folder" : undefined}
+				aria-live={sending && !open ? "off" : undefined} // the percentages change ten times a second; the progress bars carry their own values
 				data-testid="attachment-popup"
 				style={{ position: "fixed", zIndex: 60, ...(placement ?? { left: 0, top: 0, visibility: "hidden" }), overflowY: "auto" }}
 				className={open ? "w-max rounded-lg border bg-card p-1 shadow-lg" : "w-64 whitespace-pre-line break-words rounded-lg border bg-card p-2 text-xs text-muted-foreground shadow-lg"}

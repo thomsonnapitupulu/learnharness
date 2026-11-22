@@ -222,7 +222,7 @@ test("a browser upload that fails says why and leaves the draft alone; with nowh
 	const f = await fixture({ desktop: false, claimed: false });
 	await f.event("drop", f.transfer([f.file("a.pdf")]));
 	await f.respond(0, 500, { error: "The file could not be saved on the server." });
-	assert.equal(f.status, "The file could not be saved on the server.");
+	assert.equal(f.status, "a.pdf: The file could not be saved on the server.");
 	assert.equal(f.value, "readthis");
 	await f.event("drop", f.transfer([f.file("b.pdf")]));
 	await f.respond(1, 201, { path: "/srv/lh/data/uploads/up_a_000000000001/b.pdf" });
