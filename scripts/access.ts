@@ -10,7 +10,7 @@
  * LH_AUTH_FILE: run it as the service user with the service's environment.
  */
 import { ACCESS_FILE } from "../config.ts";
-import { generatePassword, MIN_PASSWORD, readAccessState, setPassword, signOutEverywhere, unlockSignIn } from "../src/server/access-session.ts";
+import { generatePassword, readAccessState, setPassword, signOutEverywhere, unlockSignIn } from "../src/server/access-session.ts";
 
 const USAGE = "Usage: npm run access -- set-password [--stdin] | sign-out-all | unlock | status";
 
@@ -33,11 +33,12 @@ async function main(): Promise<number> {
 		case "set-password": {
 			const fromStdin = flags.includes("--stdin");
 			const password = fromStdin ? await readStdin() : generatePassword();
-			if (fromStdin && password.length < MIN_PASSWORD) {
-				console.error(`The password needs at least ${MIN_PASSWORD} characters.`);
+			try {
+				await setPassword(password);
+			} catch (error) {
+				console.error(error instanceof Error ? error.message : String(error));
 				return 1;
 			}
-			await setPassword(password);
 			console.log("Password set. Every device is signed out.");
 			if (!fromStdin) console.log(`\n  ${password}\n\nSave it in your password manager now. It is not stored and cannot be shown again.`);
 			return 0;

@@ -19,8 +19,8 @@ export function escapeHTML(text: string): string {
 }
 
 const STYLE = `
-:root{--bg:#141414;--fg:#e6e6e6;--card:#1c1c1c;--muted:#8d8d8d;--line:#434343;--err:#ef4444;color-scheme:dark light}
-@media (prefers-color-scheme:light){:root{--bg:#f5f5f3;--fg:#1a1a1a;--card:#fff;--muted:#6b6b6b;--line:#d4d4d0;--err:#c0392b}}
+:root{--bg:#141414;--fg:#e6e6e6;--card:#1c1c1c;--muted:#8d8d8d;--line:#7a7a7a;--err:#ef4444;color-scheme:dark light}
+@media (prefers-color-scheme:light){:root{--bg:#f5f5f3;--fg:#1a1a1a;--card:#fff;--muted:#6b6b6b;--line:#8a8a86;--err:#c0392b}}
 *{box-sizing:border-box}
 body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:max(1.5rem,env(safe-area-inset-top)) max(1.5rem,env(safe-area-inset-right)) max(1.5rem,env(safe-area-inset-bottom)) max(1.5rem,env(safe-area-inset-left));background:var(--bg);color:var(--fg);font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
 main{width:100%;max-width:22rem}
@@ -31,6 +31,7 @@ form{display:grid;gap:.75rem}
 input,button{width:100%;height:3rem;font:inherit;border-radius:.6rem}
 input{padding:0 .9rem;color:inherit;background:var(--card);border:1px solid var(--line)}
 button{font-weight:600;color:var(--bg);background:var(--fg);border:0;cursor:pointer}
+input::placeholder{color:var(--muted);opacity:1}
 input:focus-visible,button:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
 .hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);opacity:0}
 `;

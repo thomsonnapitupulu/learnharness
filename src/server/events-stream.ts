@@ -25,11 +25,18 @@
  * ui-stream subscribe() pattern.
  */
 import { subscribe, type ServerEvent } from "../core/events.ts";
+import { loginOn } from "./access-gate.ts";
+import { readAccessState } from "./access-session.ts";
 
 /** One window's subscription as an SSE Response. */
 export function eventsResponse(): Response {
 	const encoder = new TextEncoder();
 	let teardown: (() => void) | undefined;
+	// On the hosted server the stream belongs to the sessions that exist now:
+	// signing out everywhere (or a new password) changes the session key, and
+	// the next heartbeat then ends the stream, rather than letting a signed-out
+	// phone go on hearing what the app is doing.
+	const sessionKey = loginOn() ? readAccessState().sessionKey : null;
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
 			let closed = false;
@@ -61,7 +68,14 @@ export function eventsResponse(): Response {
 				const { type, ...payload } = event;
 				frame(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`);
 			});
-			heartbeat = setInterval(() => frame(": ping\n\n"), 25_000);
+			heartbeat = setInterval(() => {
+				if (sessionKey !== null && readAccessState().sessionKey !== sessionKey) {
+					stop();
+					try { controller.close(); } catch { /* the reader already went away */ }
+					return;
+				}
+				frame(": ping\n\n");
+			}, 25_000);
 
 			teardown = stop;
 		},
