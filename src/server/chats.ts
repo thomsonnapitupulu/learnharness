@@ -177,8 +177,11 @@ function finishChatRecordDeletion(chatId: string): number {
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
 	// The record says which uploads are the session's (files sent up from a
 	// browser, src/server/uploads.ts): read it before it is gone, and remove the
-	// files only once the record itself is.
-	const uploads = uploadIdsIn(JSON.stringify(stores.chatStore.getChat(chatId) ?? ""));
+	// files only once the record itself is. Only what the learner's own messages
+	// carry counts: the agent may list the uploads folder in a tool result, and
+	// that must not make this session the owner of other sessions' files.
+	const own = (stores.chatStore.getChat(chatId)?.messages ?? []).filter((message) => (message as { role?: unknown }).role === "user");
+	const uploads = uploadIdsIn(JSON.stringify(own));
 	if (stores.chatStore.deleteChat(chatId)) {
 		removeUploads(uploads);
 		discardChatDeliveries(chatId);

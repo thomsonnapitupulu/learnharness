@@ -36,7 +36,8 @@ export function createUploadRoute({ save = saveUpload, sweep = () => sweepUpload
 			(error) => console.warn(`[uploads] sweep failed: ${error instanceof Error ? error.message : String(error)}`),
 		);
 	};
-	const unsupported = (request: Request) => refusal(request) ?? new Response(null, { status: 405, headers: { Allow: "OPTIONS, POST" } });
+	// Only POST is exported: Next answers any other method with 405 itself, and
+	// there is nothing behind them to protect.
 	return {
 		async POST(request: Request): Promise<Response> {
 			const denied = refusal(request);
@@ -55,12 +56,6 @@ export function createUploadRoute({ save = saveUpload, sweep = () => sweepUpload
 				throw error;
 			}
 		},
-		OPTIONS: (request: Request) => refusal(request) ?? new Response(null, { status: 204, headers: { Allow: "OPTIONS, POST" } }),
-		GET: unsupported,
-		HEAD: unsupported,
-		PUT: unsupported,
-		PATCH: unsupported,
-		DELETE: unsupported,
 	};
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { FileSymlinkIcon, XIcon } from "lucide-react";
 import { directoryReferencePath, quoteFilePath } from "@/src/core";
 import { appendToPrimaryInput } from "@/components/dictation";
@@ -27,7 +28,11 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 	const [dragging, setDragging] = useState(false);
 	const [notice, setNotice] = useState("");
 	const sendingNow = useRef<AbortController | null>(null);
-	useEffect(() => () => sendingNow.current?.abort(), []); // leaving mid-upload stops it
+	// This zone lives in the app shell, so it outlasts a change of page. Leaving
+	// the page mid-upload stops it: the paths would land in another session's
+	// composer.
+	const pathname = usePathname();
+	useEffect(() => () => sendingNow.current?.abort(), [pathname]);
 	const hasFiles = (event: React.DragEvent) => Array.from(event.dataTransfer.types).includes("Files");
 	const clearDrag = () => { depth.current = 0; setDragging(false); };
 	useEffect(() => {
@@ -57,14 +62,17 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 	/** Browser drop: upload the files (never folders), then place their server paths. */
 	const attachUploads = async (files: File[], folders: boolean) => {
 		if (files.length === 0) { setNotice(folders ? "Folders cannot be uploaded. Drop files instead." : "No files were dropped."); return; }
-		const { signal } = (sendingNow.current = new AbortController());
+		if (sendingNow.current && !sendingNow.current.signal.aborted) { setNotice("Wait for the upload that is running to finish."); return; }
+		const controller = (sendingNow.current = new AbortController());
+		const { signal } = controller;
 		const progress = (index: number, fraction: number) => setNotice(
 			`Uploading ${files.length === 1 ? files[0]!.name : `file ${index + 1} of ${files.length}`}… ${Math.round(fraction * 100)}%`);
 		const { paths, errors } = await uploadFiles(files, { signal, onProgress: progress });
-		if (signal.aborted) return;
+		if (sendingNow.current === controller) sendingNow.current = null;
+		if (signal.aborted) { setNotice(""); return; }
 		const problems = [...errors, ...(folders ? ["Folders cannot be uploaded, so only the files were attached."] : [])];
 		const refusal = paths.length > 0 ? place(paths) : "";
-		setNotice(refusal || problems.join("\n"));
+		setNotice([refusal, ...problems].filter(Boolean).join("\n"));
 	};
 	return (
 		<main
@@ -136,7 +144,7 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 				</div>
 			)}
 			{notice && <div role="status" className="absolute bottom-2 left-1/2 z-50 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-md border bg-card px-3 py-2 font-ui text-xs shadow-sm">
-				<span>{notice}</span>
+				<span className="whitespace-pre-line">{notice}</span>
 				<button type="button" aria-label="Dismiss attachment notice" onClick={() => setNotice("")} className="shrink-0 rounded-sm p-1 hover:bg-accent"><XIcon className="size-3" aria-hidden /></button>
 			</div>}
 		</main>

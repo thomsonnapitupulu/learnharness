@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
+import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime.js";
 import { FilePathDropZone } from "../components/file-path-drop-zone.tsx";
 import { useDictationTarget } from "../components/dictation.tsx";
 import { PathInput } from "../components/path-input.tsx";
@@ -55,6 +56,7 @@ async function fixture({ desktop = true, claimed = true, onContentRoot }: {
 	let submits = 0;
 	let keys = 0;
 	let value = "readthis";
+	let pathname = "/chat/a";
 	const bridge = desktop ? { getPathForFile(file: File) {
 		resolved.push(file);
 		const result = backingPaths.get(file);
@@ -77,7 +79,7 @@ async function fixture({ desktop = true, claimed = true, onContentRoot }: {
 	const root = createRoot(doc.getElementById("root")!);
 	function Harness() {
 		useDictationTarget((text) => appends.push(text), claimed);
-		return <>
+		return <PathnameContext.Provider value={pathname}>
 			<aside data-testid="sidebar">Sidebar</aside>
 			<FilePathDropZone onContentRoot={onContentRoot}>
 				<form onSubmit={(event) => { event.preventDefault(); submits++; }}>
@@ -86,7 +88,7 @@ async function fixture({ desktop = true, claimed = true, onContentRoot }: {
 					<div data-testid="content">Content away from the input</div>
 				</form>
 			</FilePathDropZone>
-		</>;
+		</PathnameContext.Provider>;
 	}
 	function draw() { root.render(<Harness />); }
 	await act(async () => { draw(); });
@@ -128,6 +130,8 @@ async function fixture({ desktop = true, claimed = true, onContentRoot }: {
 			await act(async () => { Object.assign(requests[index]!, { status, response: body }); requests[index]!.onload?.(); });
 		},
 		async leave() { await cleanup?.(); cleanup = undefined; },
+		/** Navigate to another page while the shell, and so the drop zone, stays mounted. */
+		async go(next: string) { pathname = next; await act(async () => { draw(); }); },
 		get value() { return value; },
 		get status() { return doc.querySelector('[role="status"]')?.textContent ?? ""; },
 		focusEditor(offset: number) {
@@ -258,6 +262,37 @@ test("leaving the page mid-upload stops the transfer and attaches nothing", asyn
 	assert.equal(f.requests[0]!.aborted, true);
 	assert.equal(f.requests.length, 1, "the second file never starts");
 	assert.equal(f.value, "readthis");
+});
+
+test("changing the page mid-upload stops the transfer, though the zone stays mounted: the paths must not land in another session", async () => {
+	const f = await fixture({ desktop: false });
+	await f.event("drop", f.transfer([f.file("a.pdf"), f.file("b.pdf")]));
+	assert.equal(f.status, "Uploading file 1 of 2… 0%");
+	await f.go("/chat/b");
+	assert.equal(f.requests[0]!.aborted, true);
+	assert.equal(f.requests.length, 1, "the second file never starts");
+	assert.equal(f.value, "readthis");
+	assert.deepEqual(f.appends, []);
+	assert.equal(f.status, "", "no stale progress is left on screen");
+});
+
+test("a second drop while an upload is running waits its turn instead of starting another", async () => {
+	const f = await fixture({ desktop: false });
+	await f.event("drop", f.transfer([f.file("a.pdf")]));
+	await f.event("drop", f.transfer([f.file("b.pdf")]));
+	assert.equal(f.requests.length, 1);
+	assert.equal(f.status, "Wait for the upload that is running to finish.");
+	await f.respond(0, 201, { path: "/srv/lh/data/uploads/up_a_000000000001/a.pdf" });
+	await f.event("drop", f.transfer([f.file("b.pdf")]));
+	assert.equal(f.requests.length, 2, "once the first is done the next drop goes");
+});
+
+test("upload problems are shown even when the files that did go up have nowhere to land", async () => {
+	const f = await fixture({ desktop: false, claimed: false });
+	await f.event("drop", f.transfer([f.file("a.pdf"), f.file("b.pdf")]));
+	await f.respond(0, 500, { error: "a.pdf could not be saved on the server." });
+	await f.respond(1, 201, { path: "/srv/lh/data/uploads/up_a_000000000001/b.pdf" });
+	assert.equal(f.status, "Open a chat to attach file paths.\na.pdf could not be saved on the server.");
 });
 
 test("mixed files and directories retain one original path each in drop order; invalid paths are skipped", async () => {

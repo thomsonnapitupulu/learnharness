@@ -10,6 +10,7 @@ The agent's file tools read the server's disk, not the visitor's phone. So in a 
 - **Progress:** each file shows a bar with its name and percentage in a small panel above the composer. Several files go one after another.
 - **Done:** the path is added to the message as a chip, the same chip an attached path makes today. A failure is a sentence that names the file ("report.pdf is larger than 64 MiB, the most that can be attached.", "You were signed out. Sign in again, then attach report.pdf.", "… could not be sent. Check the connection and try again.").
 - **Folders** cannot be uploaded. Dropping one says so, and dropping a folder with files attaches the files.
+- **One drop at a time, and leaving stops it.** A second drop while one is sending is told to wait. Changing page (another session, home) stops an upload that is still going, so its path can never land in another session's message.
 - **The desktop app on its own computer is unchanged:** it still opens the file and folder dialogs and attaches local paths. (Story 7 makes the desktop app, when it is pointed at a server, behave like a browser here, because a path on the computer means nothing on the server.)
 
 Screens (a desktop-size browser, because the phone layout is story 4's): [uploading](screens/s3-uploading.png), [attached](screens/s3-attached.png), [too large](screens/s3-too-large.png).
@@ -21,7 +22,7 @@ Screens (a desktop-size browser, because the phone layout is story 4's): [upload
 | Limits (64 MiB) | `lib/upload-limits.ts`, one constant used by the browser, the route and the message |
 | Browser side: `uploadFile`, `uploadFiles` | `lib/upload-client.ts`. XMLHttpRequest rather than fetch, because only it reports upload progress. The file is the request body, the name is `?name=`. |
 | Attach button and drop zone | `components/attach-files-button.tsx`, `components/file-path-drop-zone.tsx` |
-| Route | `POST /api/uploads?name=…` (`app/api/uploads/route.ts`, logic in `src/server/upload-http.ts`). Replies `201 { id, name, size, path }`. Every other method is `405`. |
+| Route | `POST /api/uploads?name=…` (`app/api/uploads/route.ts`, logic in `src/server/upload-http.ts`). Replies `201 { id, name, size, path }`. Only POST is exported: Next answers every other method with `405` itself. |
 | Storage | `src/server/uploads.ts`. `<data folder>/uploads/<id>/<name>`, folder mode 0700, file mode 0600. |
 
 **The route is exempt from `proxy.ts`.** Next hands the proxy a copy of the request body that it cuts off at 25 MiB (`proxyClientMaxBodySize`), which would truncate a big upload before the route saw it. So the matcher in `proxy.ts` skips `/api/uploads`, and the handler does the proxy's two checks itself, before reading a byte: the API policy (allowed host, same-origin for writes, or the desktop capability), then the sign-in gate. The streamed document route already works this way.
@@ -32,8 +33,8 @@ Screens (a desktop-size browser, because the phone layout is story 4's): [upload
 
 ## Deleting
 
-- **With the session.** An upload belongs to the sessions whose records mention its id. Deleting a session (`DELETE /api/chats/:id`) removes the uploads its record mentions, after the record itself is gone. An upload that two sessions mention (a pasted path) is removed with whichever is deleted first; that is a known edge, noted for the owner.
-- **Abandoned uploads.** A file picked into a draft that is never sent, or a transfer cut off midway, belongs to no session. The upload route sweeps at most once in six hours, in the background: uploads older than seven days that no session record mentions are removed. If any record cannot be read, the sweep removes nothing.
+- **With the session.** An upload belongs to the session whose own messages (the learner's) carry its path. Deleting a session (`DELETE /api/chats/:id`) removes those uploads, after the record itself is gone. What the agent says or a tool result prints does not count: a listing of the uploads folder in one session would otherwise make that session the owner of every upload it listed. An upload that two sessions' own messages carry (a path pasted into both) is removed with whichever is deleted first; that is a known edge, noted for the owner.
+- **Abandoned uploads.** A file picked into a draft that is never sent, or a transfer cut off midway, belongs to no session. The upload route sweeps at most once in six hours, in the background: uploads older than seven days that no session record mentions anywhere (the sweep is the careful one: any mention keeps an upload) are removed. If any record cannot be read, the sweep removes nothing.
 
 ## Where this differs from the plan
 

@@ -264,17 +264,27 @@ describe("the route", () => {
 		assert.equal(saved(), before);
 	});
 
-	it("answers only POST (and OPTIONS), after the gate", async () => {
-		for (const method of ["GET", "HEAD", "PUT", "PATCH", "DELETE"] as const) {
-			const open = await route[method](ask(method, "/api/uploads", signedIn()));
-			assert.equal(open.status, 405, method);
-			assert.equal(open.headers.get("allow"), "OPTIONS, POST");
-			assert.equal((await route[method](ask(method, "/api/uploads"))).status, 401, `${method} without a session`);
+	it("exports only POST: Next answers every other method itself, and there is nothing behind them", () => {
+		assert.deepEqual(Object.keys(route), ["POST"]);
+	});
+
+	it("under the desktop capability it refuses without the secret and saves with it, and needs no sign-in", async () => {
+		const secret = "d".repeat(64);
+		process.env.LH_DESKTOP_API_SECRET = secret;
+		try {
+			const before = saved();
+			const refused: Record<string, string>[] = [{}, { "x-learnharness-desktop": "e".repeat(64) }, { "x-learnharness-desktop": secret.slice(0, 63) }];
+			for (const extra of refused) {
+				const response = await route.POST(ask("POST", "/api/uploads?name=a.txt", extra, unreadable()));
+				assert.equal(response.status, 403, JSON.stringify(extra));
+			}
+			assert.equal(saved(), before);
+			const allowed = await route.POST(ask("POST", "/api/uploads?name=a.txt", { "x-learnharness-desktop": secret }, Buffer.from("x")));
+			assert.equal(allowed.status, 201);
+			assert.equal(saved(), before + 1);
+		} finally {
+			delete process.env.LH_DESKTOP_API_SECRET;
 		}
-		const options = route.OPTIONS(ask("OPTIONS", "/api/uploads", signedIn()));
-		assert.equal(options.status, 204);
-		assert.equal(options.headers.get("allow"), "OPTIONS, POST");
-		assert.equal(route.OPTIONS(ask("OPTIONS", "/api/uploads"))?.status, 401);
 	});
 
 	it("tidies up in the background, at most once in six hours", async () => {
@@ -312,6 +322,22 @@ describe("deleting a session", () => {
 		assert.equal(fs.existsSync(path.join(PATHS.uploads, someoneElses)), true, "the other session keeps its upload");
 		assert.equal(chatStore.getChat(chat.id), null);
 		assert.ok(chatStore.getChat(other.id));
+	});
+
+	it("does not take an upload that only the agent or a tool result mentions, such as a listing of the folder", async () => {
+		const listed = uploads.newUploadId();
+		const quoted = uploads.newUploadId();
+		make(listed);
+		make(quoted);
+		const chat = chatStore.createChat("lists the folder");
+		chatStore.saveMessages(chat.id, [
+			user("what is in the uploads folder?"),
+			{ role: "toolResult", toolCallId: "t1", toolName: "bash", content: [{ type: "text", text: path.join(PATHS.uploads, listed, "a.txt") }], isError: false, timestamp: Date.now() } as never,
+			{ role: "assistant", content: [{ type: "text", text: `Another session attached ${path.join(PATHS.uploads, quoted, "a.txt")}` }], timestamp: Date.now() } as never,
+		]);
+		assert.equal((await deleteChatSession(chat.id, "preserve-graph")).ok, true);
+		assert.equal(fs.existsSync(path.join(PATHS.uploads, listed)), true);
+		assert.equal(fs.existsSync(path.join(PATHS.uploads, quoted)), true);
 	});
 
 	it("keeps the uploads of a session that does not exist", async () => {
