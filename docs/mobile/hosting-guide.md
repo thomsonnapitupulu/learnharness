@@ -89,7 +89,7 @@ Either bring your desktop data, API keys included, with [data-migration.md](data
 
 The simplest way to use the server from the Mac is the site in a browser: in Safari, File, **Add to Dock**; in Chrome, the menu, Cast, save and share, **Install page as app**. That gives it a window of its own with nothing to maintain.
 
-The desktop app also has the Settings, General, **Server** row from story 7 (see [desktop-server.md](desktop-server.md) once it is merged), which makes it open the server instead of running its own. That row exists only in a desktop build made from this fork. The app installed now comes from upstream and updates from there, so how to get a fork build onto the Mac (and keep it from being replaced by an upstream update) is an open question for the owner. It is not needed to use the server.
+The desktop app also has the Settings, General, **Server** row from story 7 (see [desktop-server.md](desktop-server.md)), which makes it open the server instead of running its own. That row exists only in a desktop build made from this fork. The app installed now comes from upstream and updates from there, so how to get a fork build onto the Mac (and keep it from being replaced by an upstream update) is an open question for the owner. It is not needed to use the server.
 
 ## Updating
 
