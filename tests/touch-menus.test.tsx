@@ -141,6 +141,19 @@ describe("the sidebar wires the button to its menus", () => {
 		assert.match(source, /\{renamingId !== c\.id && \(\s*<RowMenuButton\s+label=\{`Actions for \$\{c\.title\}`\}\s+open=\{ctxChatId === c\.id\}\s+testId="session-row-menu"\s+onClick=\{\(e\) => \(ctxChatId === c\.id \? setCtxChatId\(null\) : openContext\(e, c\)\)\}/);
 	});
 
+	it("a second tap on the button closes the menu: the button is the anchor, and a press on the anchor is not an outside press", () => {
+		// Without these, the second tap's pointerdown closes the menu and its click opens it again, so it never closes.
+		assert.match(source, /ctxAnchorRef\.current = e\.currentTarget;/, "a session menu is anchored to what was pressed");
+		assert.match(source, /if \(ctxAnchorRef\.current\?\.contains\(target\)\) return;/, "and a press inside the anchor does not dismiss it");
+		assert.match(source, /folderAnchorRef\.current = e\.currentTarget;/, "a folder menu is anchored to what was pressed");
+		assert.match(source, /if \(folderAnchorRef\.current\?\.contains\(target\)\) return;/, "and a press inside the anchor does not dismiss it");
+	});
+
+	it("the rows that hold the button are positioned, so the button sits at the row's right end", () => {
+		assert.match(source, /<SourceDragRow key=\{c\.id\} kind="source"[^>]*\sclassName="relative"/, "a session row");
+		assert.match(read("components/sidebar-folders.tsx"), /<SourceDragRow kind="folder"[\s\S]*?className=\{cn\("relative /, "a folder row");
+	});
+
 	it("a folder row has it too, and its second tap closes the folder menu", () => {
 		assert.match(source, /menuOpen=\{ctxFolderId === folder\.id\}/);
 		assert.match(source, /onMenuButton=\{\(e\) => \(ctxFolderId === folder\.id \? setCtxFolderId\(null\) : openFolderContext\(e, folder\.id\)\)\}/);
@@ -213,5 +226,15 @@ describe("the graph on a phone", () => {
 			assert.equal(buttons.length, 2, file);
 			for (const b of buttons) assert.match(b, /className="[^"]*\brelative touch-target\b/, file);
 		}
+	});
+});
+
+describe("no zoom on a touch screen", () => {
+	it("every text field is 16px there, outside any layer so it wins over the per-field sizes", () => {
+		const css = read("app/globals.css");
+		const rule = css.match(/@media \(pointer: coarse\) \{\s*(input:not\([^)]*\),\s*textarea,\s*select)\s*\{\s*font-size: 16px;\s*\}\s*\}/);
+		assert.ok(rule, "an unlayered @media (pointer: coarse) rule that sets font-size: 16px on input, textarea and select");
+		for (const type of ["checkbox", "radio", "range", "file", "color", "button", "submit", "hidden"]) assert.ok(rule[1]!.includes(`[type="${type}"]`), `${type} is not a text field`);
+		assert.ok(!css.slice(0, rule.index).includes("@layer"), "it is not inside a layer");
 	});
 });

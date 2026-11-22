@@ -33,6 +33,20 @@
 	}
 }
 
+/* No zoom when a field takes focus (mobile epic, story 6). iOS Safari zooms the
+   page into any text field whose text is under 16px and leaves it zoomed until
+   the person pinches back out, and most fields here are 11px. So on a touch
+   screen every text field is 16px. This rule has no layer on purpose: Tailwind's
+   utilities (the per-field `text-xs`) sit in a layer, and a rule outside any
+   layer wins over them. A mouse is not affected. */
+@media (pointer: coarse) {
+	input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"]),
+	textarea,
+	select {
+		font-size: 16px;
+	}
+}
+
 /*
  * THE SKIN — wave 5. Design tokens, the single place to restyle the app.
  *
