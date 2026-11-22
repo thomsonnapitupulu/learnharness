@@ -39,6 +39,12 @@ const tokenOf = (text: string) => /\/unlock\?token=([A-Za-z0-9_-]+)/.exec(text)?
 const form = (fields: Record<string, string>) => new URLSearchParams(fields).toString();
 const FORM = { "content-type": "application/x-www-form-urlencoded" };
 const navigate = { "sec-fetch-mode": "navigate", accept: "text/html" };
+/** Everything the server prints while the test runs. */
+const captureLog = (t: { mock: { method: (object: object, name: string, replacement: (...args: unknown[]) => void) => unknown } }) => {
+	const logged: string[] = [];
+	for (const level of ["log", "info", "warn", "error"]) t.mock.method(console, level, (...args: unknown[]) => void logged.push(args.join(" ")));
+	return logged;
+};
 
 /** A request as Caddy forwards it. */
 const viaCaddy = (p: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) =>
@@ -163,6 +169,13 @@ describe("where the email goes", () => {
 		assert.equal(mail.mailConfig({ LH_ACCESS_EMAIL: OWNER, LH_ALLOWED_HOSTS: "bad host" }), null);
 	});
 
+	it("takes the first name that is not empty, so a stray comma does not turn it off", () => {
+		for (const hosts of [",learn.example.com", " , Learn.Example.com ,x.example.com", ",,learn.example.com"]) {
+			assert.equal(mail.mailConfig({ LH_ACCESS_EMAIL: OWNER, LH_ALLOWED_HOSTS: hosts })?.host, "learn.example.com", hosts);
+		}
+		assert.equal(mail.mailConfig({ LH_ACCESS_EMAIL: OWNER, LH_ALLOWED_HOSTS: " , ," }), null);
+	});
+
 	it("refuses a list, a name part or anything a header could be split on", () => {
 		for (const address of ["a@example.invalid, b@example.invalid", "Owner <a@example.invalid>", "a b@example.invalid", "a@example.invalid\nBcc: x@example.invalid", "a@@example.invalid", "plain", "@example.invalid", '"a"@example.invalid']) {
 			assert.equal(mail.mailConfig({ LH_ACCESS_EMAIL: address, LH_ALLOWED_HOSTS: "learn.example.com" }), null, JSON.stringify(address));
@@ -209,7 +222,31 @@ describe("sending through the AWS CLI", { skip: process.platform === "win32" }, 
 	it("reports a CLI that is not installed", async () => {
 		process.env.PATH = mkdtempSync(path.join(tmpdir(), "lh-empty-path-"));
 		mail.setMailSender();
-		await assert.rejects(mail.sendMail({ to: OWNER, from: "x@example.invalid", subject: "s", text: "t" }), /ENOENT/);
+		await assert.rejects(mail.sendMail({ to: OWNER, from: "x@example.invalid", subject: "s", text: "t" }), /aws command was not found/);
+	});
+
+	it("never puts the command line in the error: a CLI that fails without a word gives a fixed sentence", async () => {
+		fakeAws("exit 3");
+		mail.setMailSender();
+		await assert.rejects(mail.sendMail({ to: OWNER, from: "x@example.invalid", subject: "s", text: "https://learn.example.com/unlock?token=abc" }), (error: Error) => {
+			assert.equal(error.message, "aws exited with status 3 and said nothing");
+			return true;
+		});
+	});
+
+	it("leaves the address and every part of the link out of the log when the CLI fails without a word", async (t) => {
+		const args = path.join(dir, "aws-args-silent.txt");
+		fakeAws(`printf '%s\\n' "$@" > '${args}'; exit 1`);
+		mail.setMailSender();
+		const logged = captureLog(t);
+		lockNow();
+		assert.match(await (await postUnlock()).text(), /could not be sent/);
+		const token = tokenOf(readFileSync(args, "utf8"));
+		assert.equal(token.length, 43, "the fake CLI saw the link");
+		const log = logged.join("\n");
+		assert.match(log, /could not email the unlock link: aws exited with status 1 and said nothing/);
+		assert.ok(!log.toLowerCase().includes(OWNER), "no address");
+		assert.ok(!log.includes(token.slice(0, 12)), "no piece of the link");
 	});
 
 	after(() => {
@@ -279,6 +316,18 @@ describe("when sign-in locks", () => {
 		assert.match(line, /\(address\)/);
 	});
 
+	it("scrubs the link from what the CLI said, even where the 500-character cut would fall inside it", async (t) => {
+		const logged = captureLog(t);
+		mail.setMailSender(async (message) => {
+			throw new Error(`${"x".repeat(480)}${tokenOf(message.text)} then more words after it`);
+		});
+		lockNow();
+		await postUnlock();
+		const line = logged.find((entry) => entry.includes("could not email the unlock link"))!;
+		assert.ok(line.includes("(link)"));
+		assert.ok(!/[A-Za-z0-9_-]{20}/.test(line.replace(/x{20,}/g, "").replace(/could not email the unlock link/, "")), "no run of 20 token-like characters is left");
+	});
+
 	it("keeps the address and the link out of the log, and the link out of the file", async (t) => {
 		const logged: string[] = [];
 		for (const level of ["log", "info", "warn", "error"] as const) t.mock.method(console, level, (...args: unknown[]) => void logged.push(args.join(" ")));
@@ -307,6 +356,18 @@ describe("the Email me an unlock link button", () => {
 		assert.match(sent[0]!.text, /^You asked for an unlock link \(from 203\.0\.113\.7\)\./);
 	});
 
+	it("keeps the red line for the problem and puts what to do next in a plain note", async () => {
+		lockNow();
+		for (const page of [await getLogin().text(), await (await postUnlock()).text()]) {
+			assert.match(page, /<p class="err" role="alert">Sign-in is locked after too many wrong passwords\.<\/p>/);
+			assert.match(page, /<p role="status">[^<]+<\/p>/);
+			assert.ok(!page.includes("Sign in to continue"), "nothing invites a sign-in while it is locked");
+		}
+		assert.match(await (await postUnlock()).text(), /<p role="status">Wait 15 minutes before asking for another unlock email\.<\/p>/);
+		change({ locked: false });
+		assert.match(await getLogin().text(), /Sign in to continue/);
+	});
+
 	it("always links to the site's own name over https, whatever Host the request used", async () => {
 		lockNow();
 		// An IP literal passes the host check, so a request can name one; the link must not follow it.
@@ -332,7 +393,9 @@ describe("the Email me an unlock link button", () => {
 		lockNow();
 		await postUnlock();
 		const first = tokenOf(sent[0]!.text);
-		assert.match(await (await postUnlock()).text(), /emailed a little while ago\. You can ask for another in 15 minutes/);
+		const waiting = await (await postUnlock()).text();
+		assert.match(waiting, /Wait 15 minutes before asking for another unlock email\./);
+		assert.ok(!/was emailed|a link was/i.test(waiting), "a failed send counts toward the wait too, so it does not claim one arrived");
 		assert.equal(sent.length, 1);
 		change({ mailedAt: state().mailedAt! - 16 * MINUTE });
 		assert.match(await (await postUnlock()).text(), /An unlock link was emailed to you/);
@@ -393,6 +456,16 @@ describe("the emailed link", () => {
 			assert.equal((await postUnlock({ token: wrong ?? "" })).status, 410, String(wrong));
 		}
 		assert.equal(state().locked, true);
+	});
+
+	it("points the way forward that exists: a new link when email is set up, the server command when not", async () => {
+		const withEmail = await getUnlock("nope").text();
+		assert.match(withEmail, /Open the sign-in page and ask for a new one\./);
+		delete process.env.LH_ACCESS_EMAIL;
+		const without = await getUnlock("nope").text();
+		assert.match(without, /npm run access -- unlock/);
+		assert.ok(!/ask for a new one/.test(without));
+		assert.match(await (await postUnlock({ token: "nope" })).text(), /npm run access -- unlock/);
 	});
 
 	it("escapes whatever is in the address, so it cannot break out of the page", async () => {

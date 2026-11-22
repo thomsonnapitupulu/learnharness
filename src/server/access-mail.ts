@@ -14,7 +14,7 @@
  *  - Limit, kept in access.json: one email per 15 minutes.
  */
 
-import { execFile } from "node:child_process";
+import { type ExecFileException, execFile } from "node:child_process";
 import { issueUnlockToken, mailWaitMs, recordMail } from "./access-session.ts";
 
 export interface Mail {
@@ -39,7 +39,7 @@ const HOST = /^[a-z0-9.-]+$/;
 /** Where to send and from, or null when the server has no address set. */
 export function mailConfig(env: Env = process.env): MailConfig | null {
 	const to = env.LH_ACCESS_EMAIL?.trim();
-	const host = (env.LH_ALLOWED_HOSTS ?? "").split(",")[0]?.trim().toLowerCase();
+	const host = (env.LH_ALLOWED_HOSTS ?? "").split(",").map((name) => name.trim().toLowerCase()).find(Boolean);
 	if (!to || !ADDRESS.test(to) || !host || !HOST.test(host)) return null;
 	return { to, from: `LearnHarness <no-reply@${host}>`, host };
 }
@@ -47,6 +47,17 @@ export function mailConfig(env: Env = process.env): MailConfig | null {
 /** t***@example.com, for the server's own terminal. */
 export function maskEmail(address: string): string {
 	return address.replace(/^(.).*(@.*)$/, "$1***$2");
+}
+
+/** Why `aws` failed, in words that cannot carry the message. execFile's own
+ * error text is the whole command line, which holds the address and the link,
+ * so only what the CLI printed (or a fixed sentence) is ever used. */
+function whyAwsFailed(error: ExecFileException, stderr: string): string {
+	const said = stderr.trim();
+	if (said) return said;
+	if (error.code === "ENOENT") return "the aws command was not found (ENOENT); install the AWS CLI on the server";
+	if (error.killed) return "aws did not finish within 15 seconds";
+	return `aws exited with status ${error.code ?? "unknown"} and said nothing`;
 }
 
 function sendWithAwsCli(mail: Mail): Promise<void> {
@@ -61,7 +72,7 @@ function sendWithAwsCli(mail: Mail): Promise<void> {
 			["sesv2", "send-email", "--no-cli-pager", "--cli-input-json", input],
 			{ timeout: 15_000, maxBuffer: 64 * 1024 },
 			(error, _stdout, stderr) => {
-				if (error) reject(new Error(String(stderr || error.message).trim().slice(0, 500)));
+				if (error) reject(new Error(whyAwsFailed(error, String(stderr))));
 				else resolve();
 			},
 		);
@@ -93,9 +104,12 @@ export function unlockMailText(reason: string, link: string): string {
 
 export type UnlockMail = "sent" | "failed" | "not-configured" | { waitMs: number };
 
-/** What the CLI said, without the address: an SES rejection can name it. */
-function withoutAddress(text: string, address: string): string {
-	return text.split(address).join("(address)").replace(new RegExp(address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "(address)");
+/** What the CLI said, without the address or the link (an SES rejection can
+ * name the address, and a CLI that echoes its input would show the link),
+ * then cut short. The cut comes last, so it cannot leave half a token behind. */
+function scrubbed(text: string, address: string, token: string): string {
+	const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return text.replace(new RegExp(escape(address), "gi"), "(address)").replace(new RegExp(escape(token), "g"), "(link)").trim().slice(0, 500);
 }
 
 /** Emails a fresh unlock link when an address is set and the 15-minute gap
@@ -110,14 +124,15 @@ export async function emailUnlockLink(
 	const waitMs = mailWaitMs(now, file);
 	if (waitMs > 0) return { waitMs };
 	recordMail(now, file);
-	const link = `https://${config.host}/unlock?token=${issueUnlockToken(now, file)}`;
+	const token = issueUnlockToken(now, file);
+	const link = `https://${config.host}/unlock?token=${token}`;
 	try {
 		await sender({ to: config.to, from: config.from, subject: "LearnHarness sign-in is locked", text: unlockMailText(reason, link) });
 		console.info("[access] unlock link emailed");
 		return "sent";
 	} catch (error) {
 		const said = error instanceof Error ? error.message : String(error);
-		console.error(`[access] could not email the unlock link: ${withoutAddress(said, config.to)}`);
+		console.error(`[access] could not email the unlock link: ${scrubbed(said, config.to, token)}`);
 		return "failed";
 	}
 }

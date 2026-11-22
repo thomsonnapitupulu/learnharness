@@ -49,11 +49,14 @@ ${body}
 </main></body></html>`;
 }
 
-/** `locked` hides the form: nothing to type until the lock is cleared. With an
- * address set up (`canEmail`) it offers a button that emails an unlock link. */
-export function loginPage({ next = "/", message = "", locked = false, canEmail = false }: { next?: string; message?: string; locked?: boolean; canEmail?: boolean } = {}): string {
-	return shell("Sign in", `<p>Sign in to continue.</p>
+/** `message` is a problem (red); `note` is plain information, such as what
+ * happened to the unlock email. `locked` hides the form: nothing to type until
+ * the lock is cleared. With an address set up (`canEmail`) it offers a button
+ * that emails an unlock link. */
+export function loginPage({ next = "/", message = "", note = "", locked = false, canEmail = false }: { next?: string; message?: string; note?: string; locked?: boolean; canEmail?: boolean } = {}): string {
+	return shell("Sign in", `${locked ? "" : "<p>Sign in to continue.</p>"}
 ${message ? `<p class="err" role="alert">${escapeHTML(message)}</p>` : ""}
+${note ? `<p role="status">${escapeHTML(note)}</p>` : ""}
 ${locked ? (canEmail ? `<form method="post" action="/unlock"><button type="submit">Email me an unlock link</button></form>` : "") : `<form method="post" action="/login">
 <input type="hidden" name="next" value="${escapeHTML(next)}">
 <input class="hidden" type="text" name="username" value="owner" autocomplete="username" tabindex="-1" aria-hidden="true">
@@ -79,7 +82,7 @@ export function unlockedPage(): string {
 <a class="btn" href="/login">Go to sign in</a>`);
 }
 
-export function unlockFailedPage(message = "This unlock link has expired or was already used. Open the sign-in page to ask for a new one."): string {
+export function unlockFailedPage(message: string): string {
 	return shell("Unlock", `<p class="err" role="alert">${escapeHTML(message)}</p>
 <a class="btn" href="/login">Go to sign in</a>`);
 }
