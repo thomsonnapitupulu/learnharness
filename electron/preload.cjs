@@ -31,9 +31,22 @@
  *   (theme wave, 2026-11-04): main sets nativeTheme.themeSource and
  *   repaints the native window background / control overlay to match.
  *
+ *   window.lh.server — Settings → General → Server (docs/mobile/desktop-server.md):
+ *   get() is { mode: "local" | "remote", address }, set(address | null) asks
+ *   main to switch (a native confirmation, then a restart). It exists only
+ *   when main passes "--lh-server=local|remote". In "remote" the window shows
+ *   a server somewhere else, so everything that assumes the server is on this
+ *   computer is left out: getPathForFile, chooseAttachmentFolder, chatgpt and
+ *   subscriptions (the page falls back to uploads and the web connections,
+ *   exactly as in a browser).
+ *
  * Channel names are mirrored in electron/main.cjs — keep them in sync.
  */
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
+
+// A sandboxed preload cannot import electron/server-setting.cjs, so the argument's name is repeated here.
+const serverMode = process.argv?.find((arg) => arg.startsWith("--lh-server="))?.slice("--lh-server=".length) ?? null;
+const remote = serverMode === "remote";
 
 let openSettingsListener = null;
 let pendingOpenSettings = null;
@@ -46,43 +59,53 @@ contextBridge.exposeInMainWorld("lh", {
 	platform: process.platform,
 	takeStartupMessage: () => ipcRenderer.invoke("lh:startup-message:take"),
 	dismissStartupMessage: (id) => ipcRenderer.invoke("lh:startup-message:dismiss", id),
-	// Resolve only a renderer-supplied, OS-backed File. No filesystem API,
-	// uploads, copies, or DOM File IPC to main; sandbox/isolation stay on.
-	getPathForFile: (file) => webUtils.getPathForFile(file),
-	chooseAttachmentFolder: () => ipcRenderer.invoke("lh:attachment:pick", "folder"),
+	...(remote ? {} : {
+		// Resolve only a renderer-supplied, OS-backed File. No filesystem API,
+		// uploads, copies, or DOM File IPC to main; sandbox/isolation stay on.
+		getPathForFile: (file) => webUtils.getPathForFile(file),
+		chooseAttachmentFolder: () => ipcRenderer.invoke("lh:attachment:pick", "folder"),
+	}),
 	...(process.argv?.includes("--lh-web-subscriptions") ? {
 		subscriptionTransport: "web",
 		openSubscriptionBrowser: (action) => ipcRenderer.invoke("lh:subscriptions:web-browser", action),
 	} : {}),
-	chatgpt: {
-		status: () => ipcRenderer.invoke("lh:chatgpt:control", { op: "status" }),
-		login: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "login", id }),
-		cancel: () => ipcRenderer.invoke("lh:chatgpt:control", { op: "cancel" }),
-		select: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "select", id }),
-		disconnect: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "disconnect", id }),
-		logout: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "logout", id }),
-		consent: (enabled) => ipcRenderer.invoke("lh:chatgpt:control", { op: "consent", enabled }),
-		onChange: (cb) => {
-			const listener = () => cb();
-			ipcRenderer.on("lh:chatgpt:changed", listener);
-			return () => ipcRenderer.removeListener("lh:chatgpt:changed", listener);
+	...(remote ? {} : {
+		chatgpt: {
+			status: () => ipcRenderer.invoke("lh:chatgpt:control", { op: "status" }),
+			login: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "login", id }),
+			cancel: () => ipcRenderer.invoke("lh:chatgpt:control", { op: "cancel" }),
+			select: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "select", id }),
+			disconnect: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "disconnect", id }),
+			logout: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "logout", id }),
+			consent: (enabled) => ipcRenderer.invoke("lh:chatgpt:control", { op: "consent", enabled }),
+			onChange: (cb) => {
+				const listener = () => cb();
+				ipcRenderer.on("lh:chatgpt:changed", listener);
+				return () => ipcRenderer.removeListener("lh:chatgpt:changed", listener);
+			},
 		},
-	},
-	subscriptions: {
-		status: () => ipcRenderer.invoke("lh:subscriptions:control", { op: "status" }),
-		login: (providerId, enabled) => ipcRenderer.invoke("lh:subscriptions:control", { op: "login", providerId, enabled }),
-		cancel: (providerId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "cancel", providerId }),
-		respond: (providerId, attemptId, promptId, value) => ipcRenderer.invoke("lh:subscriptions:control", { op: "respond", providerId, attemptId, promptId, value }),
-		open: (providerId, attemptId, actionId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "open", providerId, attemptId, actionId }),
-		retry: (providerId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "retry", providerId }),
-		disconnect: (providerId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "disconnect", providerId }),
-		consent: (providerId, enabled) => ipcRenderer.invoke("lh:subscriptions:control", { op: "consent", providerId, enabled }),
-		onChange: (cb) => {
-			const listener = () => cb();
-			ipcRenderer.on("lh:subscriptions:changed", listener);
-			return () => ipcRenderer.removeListener("lh:subscriptions:changed", listener);
+		subscriptions: {
+			status: () => ipcRenderer.invoke("lh:subscriptions:control", { op: "status" }),
+			login: (providerId, enabled) => ipcRenderer.invoke("lh:subscriptions:control", { op: "login", providerId, enabled }),
+			cancel: (providerId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "cancel", providerId }),
+			respond: (providerId, attemptId, promptId, value) => ipcRenderer.invoke("lh:subscriptions:control", { op: "respond", providerId, attemptId, promptId, value }),
+			open: (providerId, attemptId, actionId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "open", providerId, attemptId, actionId }),
+			retry: (providerId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "retry", providerId }),
+			disconnect: (providerId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "disconnect", providerId }),
+			consent: (providerId, enabled) => ipcRenderer.invoke("lh:subscriptions:control", { op: "consent", providerId, enabled }),
+			onChange: (cb) => {
+				const listener = () => cb();
+				ipcRenderer.on("lh:subscriptions:changed", listener);
+				return () => ipcRenderer.removeListener("lh:subscriptions:changed", listener);
+			},
 		},
-	},
+	}),
+	...(serverMode === "local" || remote ? {
+		server: {
+			get: () => ipcRenderer.invoke("lh:server:get"),
+			set: (address) => ipcRenderer.invoke("lh:server:set", address),
+		},
+	} : {}),
 	expandWindow: () => ipcRenderer.send("lh:expand-window"),
 	setAppearance: (a) => ipcRenderer.send("lh:appearance", a),
 	onZoom: (cb) => {
