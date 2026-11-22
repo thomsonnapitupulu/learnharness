@@ -12,6 +12,7 @@ Goal: use LearnHarness from a phone (home-screen web app) and from the desktop a
 | [uploads.md](uploads.md) | Attaching files from a browser: the upload route, limits, storage and clean-up (story 3, as built) | Current |
 | [phone-layouts.md](phone-layouts.md) | Phone-width audit of lessons and practice, and the proposed touch layouts | Current for layouts; its hosting notes are superseded |
 | [phone-shell.md](phone-shell.md) | The drawer sidebar, the phone header, safe areas, and the home-screen app: manifest and icons (story 4, as built) | Current |
+| [touch-input.md](touch-input.md) | Enter as a new line on touch keyboards, 44px tap targets, buttons without hover, the microphone in the composer row (story 5a, as built) | Current |
 | [approach.md](approach.md) | Why "phone client to your own server" rather than everything on the phone | Decided; background only |
 
 Screenshots from the phone audit are in [images/](images/).
