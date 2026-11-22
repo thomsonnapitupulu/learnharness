@@ -7,7 +7,7 @@
 export const PAGE_HEADERS: Record<string, string> = {
 	"Content-Type": "text/html; charset=utf-8",
 	"Cache-Control": "no-store",
-	"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+	"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
 	"X-Content-Type-Options": "nosniff",
 	// Not "no-referrer": a browser then sends "Origin: null" with the form's POST,
 	// which the same-origin check rightly refuses. "same-origin" keeps the real one.
@@ -42,6 +42,8 @@ function shell(title: string, body: string): string {
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light"><meta name="robots" content="noindex">
+<meta name="theme-color" content="#141414" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f5f5f3" media="(prefers-color-scheme: light)">
+<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <title>${escapeHTML(title)} · LearnHarness</title>
 <style>${STYLE}</style></head><body><main>
 <h1>LearnHarness</h1>

@@ -19,7 +19,7 @@ process.env.LH_ALLOWED_HOSTS = "learn.example.com";
 
 const { proxy } = await import("../proxy.ts");
 const session = await import("../src/server/access-session.ts");
-const { accessGate, clientAddress, isLocalRequest, loginOn, safeNext } = await import("../src/server/access-gate.ts");
+const { accessGate, clientAddress, isLocalRequest, loginOn, PUBLIC_FILES, safeNext } = await import("../src/server/access-gate.ts");
 const http = await import("../src/server/access-http.ts");
 const { eventsResponse } = await import("../src/server/events-stream.ts");
 
@@ -185,6 +185,47 @@ describe("with a password set", () => {
 		assert.deepEqual(accessGate(onServer("/login")), {});
 		assert.equal(accessGate(viaCaddy("/loginx", { headers: navigate })).refusal?.status, 303);
 		assert.equal(accessGate(viaCaddy("/login/../api/chats")).refusal?.status, 401);
+	});
+
+	it("lets the home-screen files through without a session: browsers fetch the manifest and icon without cookies", () => {
+		assert.deepEqual([...PUBLIC_FILES].sort(), [
+			"/icons/apple-touch-icon.png",
+			"/icons/icon-192.png",
+			"/icons/icon-512.png",
+			"/icons/icon-maskable-512.png",
+			"/manifest.webmanifest",
+		]);
+		for (const file of PUBLIC_FILES) {
+			assert.deepEqual(accessGate(viaCaddy(file)), {}, file);
+			assert.deepEqual(accessGate(viaCaddy(`${file}?v=2`)), {}, `${file} with a query`);
+			assert.deepEqual(accessGate(onServer(file)), {}, `${file} on the server itself`);
+		}
+	});
+
+	it("opens only those files: anything beside them, or reached through them, still needs a session", () => {
+		for (const other of [
+			"/icons/icon-192.png.bak", "/icons/secret.png", "/icons/", "/icons", "/manifest.webmanifest/x", "/Manifest.webmanifest",
+			"/icons/icon-192.png/../../api/chats", "/icons/%2e%2e/api/chats", "/api/chats", "/favicon.ico",
+		]) {
+			assert.equal(accessGate(viaCaddy(other)).refusal?.status, 401, other);
+			assert.equal(accessGate(viaCaddy(other, { headers: navigate })).refusal?.status, 303, `${other} as a page`);
+		}
+	});
+
+	it("still asks an allowed host and HTTPS for the home-screen files", () => {
+		const plainHttp = { "x-forwarded-proto": "http" };
+		const stranger = { host: "evil.example", "x-forwarded-host": "evil.example" };
+		for (const file of PUBLIC_FILES) {
+			assert.equal(accessGate(viaCaddy(file, { headers: plainHttp })).refusal?.status, 403, `${file} over http`);
+			assert.equal(accessGate(viaCaddy(file, { headers: stranger })).refusal?.status, 403, `${file} on another host`);
+		}
+	});
+
+	it("with no password yet, serves the home-screen files to this machine only, like everything else", () => {
+		for (const file of PUBLIC_FILES) {
+			assert.deepEqual(accessGate(onServer(file), { file: NO_PASSWORD_FILE }), {}, file);
+			assert.equal(accessGate(viaCaddy(file), { file: NO_PASSWORD_FILE }).refusal?.status, 403, `${file} through the proxy`);
+		}
 	});
 
 	it("insists on HTTPS and an allowed host for anything that came through the proxy", async () => {

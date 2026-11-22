@@ -32,7 +32,7 @@ export const sidebarRowBox = (depth: number) => ({ marginLeft: sidebarRuleInset(
 /** Folder rows (and the new-folder row): the same box, the chevron pulled in. */
 export const sidebarFolderBox = (depth: number) => ({ marginLeft: sidebarRuleInset(depth), paddingLeft: sidebarRowPadding(depth) - CHEVRON_INSET - sidebarRuleInset(depth) });
 
-export const SIDEBAR_COMPACT_ROW = "h-8";
+export const SIDEBAR_COMPACT_ROW = "h-8 max-md:h-11";
 export const sidebarNameFont = (compact: boolean) => compact ? "font-ui font-normal text-sm leading-5" : "font-prose font-normal text-(length:--lh-prose-size)";
 
 export function SidebarFolderRule({ depth, edge }: { depth: number; edge: "top" | "bottom" }) {
@@ -117,7 +117,7 @@ export function SidebarFolderRow({ folder, depth, open, dropActive, renaming, on
 			data-testid={`sidebar-folder-row-${folder.id}`} data-drop-active={dropActive}
 			style={{ marginLeft: sidebarRowBox(depth).marginLeft }} className={cn("relative transition-colors", dropActive && "bg-accent/50")}>
 			{renaming ? (
-				<div className={cn("flex w-full items-center gap-1 pr-3", compact ? SIDEBAR_COMPACT_ROW : "py-1.5")} style={{ paddingLeft: sidebarFolderBox(depth).paddingLeft }}>
+				<div className={cn("flex w-full items-center gap-1 pr-3", compact ? SIDEBAR_COMPACT_ROW : "py-1.5 max-md:py-3")} style={{ paddingLeft: sidebarFolderBox(depth).paddingLeft }}>
 					<ChevronRightIcon aria-hidden="true" className={cn("size-3.5 shrink-0 text-muted-foreground/70", open && "rotate-90")} />
 					<Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
 					<EditableSourceName name={folder.name} initiallyEditing inputClassName={sidebarNameFont(compact)} onCancel={onRenameDone}
@@ -127,7 +127,7 @@ export function SidebarFolderRow({ folder, depth, open, dropActive, renaming, on
 				<button type="button" data-testid={`sidebar-folder-${folder.id}`} aria-expanded={open}
 					aria-label={`${open ? "Collapse" : "Expand"} folder ${folder.name}`}
 					onClick={onToggle} onContextMenu={onContextMenu}
-					className={cn("flex w-full items-center gap-1 pr-3 text-left hover:bg-accent", compact ? SIDEBAR_COMPACT_ROW : "py-1.5")}
+					className={cn("flex w-full items-center gap-1 pr-3 text-left hover:bg-accent", compact ? SIDEBAR_COMPACT_ROW : "py-1.5 max-md:py-3")}
 					style={{ paddingLeft: sidebarFolderBox(depth).paddingLeft }}>
 					<ChevronRightIcon aria-hidden="true" className={cn("size-3.5 shrink-0 text-muted-foreground/70", open && "rotate-90")} />
 					<Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
@@ -141,7 +141,7 @@ export function SidebarFolderRow({ folder, depth, open, dropActive, renaming, on
 /** The inline new-folder row (Add folder / New subfolder). */
 export function NewFolderRow({ depth, onCreate, onDone, compact = false }: { depth: number; onCreate: (name: string) => Promise<unknown>; onDone: () => void; compact?: boolean }) {
 	return (
-		<div data-testid="sidebar-new-folder-row" className={cn("relative flex w-full items-center gap-1 pr-3", compact ? SIDEBAR_COMPACT_ROW : "py-1.5")} style={sidebarFolderBox(depth)}>
+		<div data-testid="sidebar-new-folder-row" className={cn("relative flex w-full items-center gap-1 pr-3", compact ? SIDEBAR_COMPACT_ROW : "py-1.5 max-md:py-3")} style={sidebarFolderBox(depth)}>
 			<span aria-hidden="true" className="size-3.5 shrink-0" />
 			<FolderIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
 			<EditableSourceName name="" initiallyEditing inputClassName={sidebarNameFont(compact)} onCancel={onDone} onSave={async (name) => { await onCreate(name); onDone(); }} />

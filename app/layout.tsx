@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Source_Sans_3 } from "next/font/google";
 import { connection } from "next/server";
 import "katex/dist/katex.min.css";
@@ -19,7 +19,24 @@ const prose = Source_Sans_3({ subsets: ["latin"], variable: "--font-sans3" });
 export const metadata: Metadata = {
 	title: "Learning Harness",
 	description: "A teacher agent with a memory — sessions, quizzes, and a knowledge graph of what you know.",
+	// The home-screen app (mobile epic, story 4): the manifest and icons are
+	// public files (public/icons, app/manifest.ts); the status bar stays the
+	// system's own, so its text is readable on any theme.
+	applicationName: "LearnHarness",
+	manifest: "/manifest.webmanifest",
+	icons: { icon: "/icons/icon-192.png", apple: "/icons/apple-touch-icon.png" },
+	appleWebApp: { capable: true, title: "LearnHarness", statusBarStyle: "default" },
+	// Next writes the standard mobile-web-app-capable; iOS before 16.4 only reads this one.
+	other: { "apple-mobile-web-app-capable": "yes" },
 };
+
+/** viewport-fit=cover lets the page use the whole screen when opened from the
+ * home screen; the shell pads itself with env(safe-area-inset-*). The browser's
+ * own bar takes the theme's background colour. */
+export async function generateViewport(): Promise<Viewport> {
+	await connection(); // the theme is per-machine disk state, like the layout's
+	return { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: readThemeBoot().vars["--background"] };
+}
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
 	// The theme is server-rendered — its class AND its color variables —
