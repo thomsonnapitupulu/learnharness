@@ -25,14 +25,18 @@ const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 function normalizeServerAddress(input) {
 	if (typeof input !== "string" || !input.trim()) return { ok: false, error: "Enter the server's address." };
 	const typed = input.trim();
-	const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(typed)?.[1].toLowerCase();
-	if (scheme && scheme !== "http" && scheme !== "https") return { ok: false, error: "Use an https:// address." };
+	// A space is never part of an address, and the URL parser would drop a line break without a word.
+	if (/[\s\u0000-\u001f\u007f]/.test(typed)) return { ok: false, error: "An address has no spaces or line breaks." };
+	// "name:" and then a slash is a scheme, typed right or not: "http:/x" must not become the host "http".
+	const scheme = /^([a-z][a-z0-9+.-]*):[/\\]/i.exec(typed)?.[1].toLowerCase();
+	if (scheme && !/^https?:\/\//i.test(typed)) return { ok: false, error: "Use an https:// address." };
 	let url;
 	try {
 		url = new URL(scheme ? typed : `https://${typed}`);
 	} catch {
 		return { ok: false, error: "That doesn't look like a web address." };
 	}
+	if (url.port === "0") return { ok: false, error: "That port number is not valid." };
 	// "localhost:3000" with no scheme means this computer's plain-http server.
 	if (!scheme && LOOPBACK.has(url.hostname)) url.protocol = "http:";
 	if (url.username || url.password) return { ok: false, error: "Leave the user name and password out of the address." };
@@ -73,8 +77,15 @@ function writeServerSetting(dir, origin, io = fs) {
 	if (!typed.ok) throw new Error(typed.error);
 	io.mkdirSync(dir, { recursive: true });
 	const temp = `${file}.${process.pid}.tmp`;
-	io.writeFileSync(temp, `${JSON.stringify({ address: typed.origin })}\n`, { mode: 0o600 });
-	io.renameSync(temp, file);
+	try {
+		io.writeFileSync(temp, `${JSON.stringify({ address: typed.origin })}\n`, { mode: 0o600 });
+		io.renameSync(temp, file);
+	} catch (error) {
+		try {
+			io.unlinkSync(temp);
+		} catch { /* it may not exist */ }
+		throw error;
+	}
 }
 
 /** "local" | "remote" as a window argument. */

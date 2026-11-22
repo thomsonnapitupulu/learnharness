@@ -1,6 +1,6 @@
 /** The desktop app's server choice: the address rules, the saved file, and the words of its two dialogs. */
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -11,7 +11,7 @@ const { normalizeServerAddress, readServerSetting, writeServerSetting, modeArgum
 	createRequire(import.meta.url)("../electron/server-setting.cjs") as {
 		normalizeServerAddress(input: unknown): Typed;
 		readServerSetting(dir: string): { origin: string | null; ignored: string | null };
-		writeServerSetting(dir: string, origin: string | null): void;
+		writeServerSetting(dir: string, origin: string | null, io?: unknown): void;
 		modeArgument(mode: string): string;
 		switchPrompt(next: string | null, title: string): { message: string; detail: string; buttons: string[]; defaultId: number; cancelId: number };
 		unreachablePrompt(origin: string, title: string): { message: string; buttons: string[]; defaultId: number; cancelId: number };
@@ -35,6 +35,7 @@ describe("typing a server address", () => {
 			["  https://learn.heythomson.com/chat/new?x=1#top  ", "https://learn.heythomson.com"],
 			["LEARN.Example.COM:443", "https://learn.example.com"],
 			["https://learn.example.com:8443/", "https://learn.example.com:8443"],
+			["learn.example.com:8443/chat", "https://learn.example.com:8443"],
 		] as const) assert.deepEqual(normalizeServerAddress(typed), { ok: true, origin }, typed);
 	});
 
@@ -56,6 +57,26 @@ describe("typing a server address", () => {
 			"https://user:secret@learn.example.com", "https://learn example.com", "http://"]) {
 			assert.equal(normalizeServerAddress(typed).ok, false, String(typed));
 		}
+	});
+
+	it("a slip in the scheme is refused, not turned into a host called http", () => {
+		for (const typed of ["http:/learn.example.com", "https:/learn.example.com", "http:\\\\learn.example.com", "HTTPS:/learn.example.com"]) {
+			const result = normalizeServerAddress(typed);
+			assert.equal(result.ok, false, typed);
+			assert.match((result as { error: string }).error, /https/, typed);
+		}
+		// what is left of a host:port, a user name or a stray colon keeps its own message
+		assert.match((normalizeServerAddress("user:secret@learn.example.com") as { error: string }).error, /user name/);
+		assert.equal(normalizeServerAddress("learn.example.com:").ok, true);
+	});
+
+	it("refuses spaces, line breaks and a port that cannot be used, instead of quietly changing them", () => {
+		for (const typed of ["learn\nexample.com", "learn.example.com\tx", "learn example.com", "learn.example.com:0", "https://learn.example.com:0", "localhost:0"]) {
+			assert.equal(normalizeServerAddress(typed).ok, false, JSON.stringify(typed));
+		}
+		assert.match((normalizeServerAddress("learn\nexample.com") as { error: string }).error, /spaces or line breaks/);
+		assert.match((normalizeServerAddress("learn.example.com:0") as { error: string }).error, /port/);
+		assert.equal(normalizeServerAddress("  learn.example.com\n").ok, true, "the ends are trimmed, as before");
 	});
 
 	it("what the confirmation shows is the origin that will be used, so a lookalike cannot hide behind a path or a backslash", () => {
@@ -83,6 +104,19 @@ describe("the saved server", () => {
 		writeServerSetting(dir, "http://localhost:3000");
 		assert.deepEqual(readServerSetting(dir), { origin: "http://localhost:3000", ignored: null });
 		assert.deepEqual(readdirSync(dir), [FILE], "no temporary file is left behind");
+		cleanup(dir);
+	});
+
+	it("a save that fails half-way leaves no temporary file and keeps the old choice", () => {
+		const dir = scratch();
+		writeServerSetting(dir, "https://learn.example.com");
+		const failing = { ...fs, renameSync: () => { throw Object.assign(new Error("EXDEV: cross-device link"), { code: "EXDEV" }); } };
+		assert.throws(() => writeServerSetting(dir, "https://other.example.com", failing), /EXDEV/);
+		assert.deepEqual(readdirSync(dir), [FILE], "no temporary file");
+		assert.equal(readServerSetting(dir).origin, "https://learn.example.com");
+		const full = { ...fs, writeFileSync: (file: string) => { fs.writeFileSync(file, "{"); throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }); } };
+		assert.throws(() => writeServerSetting(dir, "https://other.example.com", full), /ENOSPC/);
+		assert.deepEqual(readdirSync(dir), [FILE], "and no half-written one either");
 		cleanup(dir);
 	});
 

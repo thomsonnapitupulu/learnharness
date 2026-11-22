@@ -439,16 +439,32 @@ function createWindow(url, beforeLoad) {
 /* ── Server choice (Settings → General → Server, docs/mobile/desktop-server.md) ──
  * Saving the choice restarts the app: the window, the preload bridge and the
  * child server all depend on it. Switching copies nothing. */
-function relaunchWithServer(next) {
+/** Saved before anything restarts, so a failure (a data folder that cannot be written) is told to the person
+ *  instead of leaving the app half-way. { ok: true } or { ok: false, error }. */
+function saveServerChoice(next) {
 	try {
 		writeServerSetting(app.getPath("userData"), next);
+		return { ok: true };
 	} catch (error) {
 		log(`server setting not saved: ${error?.message ?? error}`);
-		dialog.showErrorBox(PRODUCT_NAME, "The server choice could not be saved.");
-		return;
+		return { ok: false, error: `The server choice could not be saved in ${app.getPath("userData")}. Check that this folder can be written.` };
 	}
+}
+
+function restartApp() {
 	app.relaunch();
 	app.quit();
+}
+
+/** Save and restart. False, after telling the person, when it could not be saved. */
+function relaunchWithServer(next) {
+	const saved = saveServerChoice(next);
+	if (!saved.ok) {
+		dialog.showErrorBox(PRODUCT_NAME, saved.error);
+		return false;
+	}
+	restartApp();
+	return true;
 }
 
 /** The native confirmation, then save and restart. Resolves with what the
@@ -457,15 +473,21 @@ async function askToSwitchServer(win, next) {
 	if (next === remoteOrigin) return { ok: false, error: next ? "The app already uses that server." : "The app already uses this computer." };
 	if (switchPending) return { ok: false, cancelled: true };
 	switchPending = true;
+	let restarting = false;
 	try {
 		const prompt = switchPrompt(next, PRODUCT_NAME);
 		const { response } = await dialog.showMessageBox(...(win && !win.isDestroyed() ? [win, prompt] : [prompt]));
 		if (response !== 0) return { ok: false, cancelled: true };
+		// Saved before the reply, so a failure shows in the row instead of "Restarting…" for good.
+		const saved = saveServerChoice(next);
+		if (!saved.ok) return saved;
+		restarting = true;
 	} finally {
-		switchPending = false;
+		// Once the choice is saved the app is going away: no second question in the meantime.
+		if (!restarting) switchPending = false;
 	}
 	// Reply first, restart on the next tick: the Settings row shows "Restarting…".
-	setImmediate(() => relaunchWithServer(next));
+	setImmediate(restartApp);
 	return { ok: true };
 }
 
@@ -481,8 +503,11 @@ async function serverAnswers(url) {
 			log(`server not reachable: ${error?.message ?? error}`);
 			const { response } = await dialog.showMessageBox(unreachablePrompt(url, PRODUCT_NAME));
 			if (response === 0) continue;
-			if (response === 1) relaunchWithServer(null);
-			else app.quit();
+			if (response === 1) {
+				if (relaunchWithServer(null)) return false;
+				continue; // it could not be saved (and said so): ask again rather than leave an app with no window
+			}
+			app.quit();
 			return false;
 		}
 	}
@@ -685,7 +710,7 @@ function installMenu() {
 				// Manual checks report their result in Settings → General.
 				{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() },
 				// The way back when the server is down and Settings cannot load.
-				...(serverMode === "remote" ? [{ label: "Use This Computer Instead of the Server…", click: () => void askToSwitchServer(BrowserWindow.getAllWindows()[0], null) }] : []),
+				...(serverMode === "remote" ? [{ label: "Use This Computer Instead of the Server…", click: () => void askToSwitchServer(BrowserWindow.getAllWindows()[0], null).then((result) => { if (result.error) dialog.showErrorBox(PRODUCT_NAME, result.error); }) }] : []),
 				{ type: "separator" },
 				{ role: "hide" },
 				{ role: "hideOthers" },

@@ -48,7 +48,7 @@ export function ServerSettings() {
 					<span className="block [overflow-wrap:anywhere]" data-testid="server-state">
 						{remote ? `Connected to ${state.address}. Your sessions and notes are stored there.` : "Using this computer. Your sessions and notes are stored here."}
 					</span>
-					{message && <span className={message.error ? "block text-error" : "block"} role={message.error ? "alert" : "status"} data-testid="server-message">{message.text}</span>}
+					{message && <span id="lh-server-message" className={message.error ? "block text-error" : "block"} role={message.error ? "alert" : "status"} data-testid="server-message">{message.text}</span>}
 				</>
 			}
 		>
@@ -65,6 +65,8 @@ export function ServerSettings() {
 						autoCorrect="off"
 						spellCheck={false}
 						aria-label="Server address"
+						aria-invalid={message?.error ? true : undefined}
+						aria-describedby={message?.error ? "lh-server-message" : undefined}
 						placeholder="learn.example.com"
 						data-testid="server-address"
 						ref={field}

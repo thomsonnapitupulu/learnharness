@@ -36,14 +36,14 @@ const settle = () => new Promise<void>((resolve) => setImmediate(() => setImmedi
 const plain = <T,>(value: T): T => (value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T));
 
 /** Boot main() against a user-data folder that holds `setting` as server.json (a string is written as it is). */
-function boot(options: { setting?: unknown; env?: Record<string, string>; probes?: (Error | null)[]; answers?: number[] } = {}) {
+function boot(options: { setting?: unknown; env?: Record<string, string>; probes?: (Error | null)[]; answers?: number[]; failSave?: boolean } = {}) {
 	const userData = tempDir();
 	if (options.setting !== undefined) writeFileSync(join(userData, "server.json"), typeof options.setting === "string" ? options.setting : JSON.stringify(options.setting));
 	const windows: Win[] = [], logs: string[] = [], probes: { url: string }[] = [], dialogs: unknown[][] = [], errorBoxes: unknown[][] = [];
 	const spawned: unknown[][] = [], handlers = new Map<string, Handler>();
 	const counts = { quit: 0, relaunch: 0, exits: 0, chatgpt: 0, subscriptions: 0 };
 	let headerHook: HeaderHook | null = null, menu: MenuItem[] = [];
-	let gate: Promise<void> | null = null;
+	let gate: Promise<void> | null = null, saveFails = options.failSave ?? false;
 	const answers = [...(options.answers ?? [])], probeResults = [...(options.probes ?? [])];
 
 	const app = Object.assign(new EventEmitter(), {
@@ -93,6 +93,11 @@ function boot(options: { setting?: unknown; env?: Record<string, string>; probes
 				case "./appearance-chrome.cjs": return { ...mainRequire(id), readAppearance: () => ({ mode: "dark", background: "#141414" }) };
 				case "./chatgpt.cjs": return { ...mainRequire(id), createChatGPT: () => { counts.chatgpt++; return { pause() {}, resume() {}, close() {} }; }, fileStore: () => ({}) };
 				case "./subscriptions.cjs": return { ...mainRequire(id), createSubscriptions: () => { counts.subscriptions++; return { ready: Promise.resolve(), pause() {}, resume() {}, close() {} }; } };
+				case "./server-setting.cjs": {
+					// The real module, except that saving can be made to fail (a data folder that cannot be written).
+					const real = mainRequire(id);
+					return { ...real, writeServerSetting: (...args: unknown[]) => { if (saveFails) throw Object.assign(new Error("EROFS: read-only file system"), { code: "EROFS" }); return real.writeServerSetting(...args); } };
+				}
 				case "./dev-server-readiness.cjs": return { waitForDevServer: async (url: string) => { probes.push({ url }); const failure = probeResults.shift(); if (failure) throw failure; } };
 				default: return mainRequire(id);
 			}
@@ -110,6 +115,7 @@ function boot(options: { setting?: unknown; env?: Record<string, string>; probes
 		userData, windows, logs, probes, dialogs, errorBoxes, spawned, counts, handlers, done, win,
 		menu: () => menu,
 		headerHook: () => headerHook!,
+		failSaves: (on = true) => { saveFails = on; },
 		hold: () => { let release!: () => void; gate = new Promise<void>((resolve) => { release = resolve; }); return () => { gate = null; release(); }; },
 		/** An IPC event from the app's own page (or from a page that is not its main frame). */
 		fromPage: (): unknown => ({ sender: win().webContents, senderFrame: win().webContents.mainFrame }),
@@ -186,10 +192,21 @@ describe("the desktop app with a server saved in Settings", () => {
 		f.finish();
 	});
 
+	it("refuses a page that has navigated away from the server, even in the main frame", async () => {
+		const f = boot({ setting: { address: REMOTE }, answers: [0] });
+		await f.done;
+		f.win().webContents.mainFrame.url = "https://evil.example/login";
+		await assert.rejects(async () => f.call("lh:server:get", f.fromPage()), /Untrusted/);
+		await assert.rejects(async () => f.call("lh:server:set", f.fromPage(), null), /Untrusted/);
+		assert.equal(f.dialogs.length, 0);
+		f.finish();
+	});
+
 	it("goes back to this computer after a confirmation: saves nothing but removes the address, then restarts", async () => {
 		const f = boot({ setting: { address: REMOTE }, answers: [0] });
 		await f.done;
 		assert.deepEqual(await f.call("lh:server:set", f.fromPage(), null), { ok: true });
+		assert.deepEqual(await f.call("lh:server:set", f.fromPage(), "other.example.com"), { ok: false, cancelled: true }, "no second question while the app is restarting");
 		assert.equal(f.dialogs.length, 1);
 		const prompt = f.dialogs[0]![1] as Prompt; // [window, prompt]
 		assert.match(prompt.message, /this computer/i);
@@ -210,6 +227,21 @@ describe("the desktop app with a server saved in Settings", () => {
 		assert.equal(f.saved(), null);
 		assert.deepEqual([f.counts.relaunch, f.counts.quit], [1, 1]);
 		assert.ok(f.logs.some((line) => /server not reachable: did not respond/.test(line)));
+		f.finish();
+	});
+
+	it("when the server does not answer and the choice cannot be saved, it says so and asks again (no app left without a window)", async () => {
+		const f = boot({ setting: { address: REMOTE }, probes: [new Error("down"), new Error("still down")], answers: [1, 2], failSave: true });
+		await f.done;
+		assert.equal(f.dialogs.length, 2, "asked again after the failed save");
+		assert.equal(f.errorBoxes.length, 1);
+		assert.match(String(f.errorBoxes[0]![1]), /could not be saved/);
+		assert.equal(f.saved(), REMOTE);
+		assert.deepEqual([f.counts.relaunch, f.counts.quit], [0, 1], "it ends by the person's own choice (Quit)");
+		const g = boot({ setting: { address: REMOTE }, probes: [new Error("down"), null], answers: [1], failSave: true });
+		await g.done;
+		assert.deepEqual(g.win().loaded, [REMOTE], "and when the server answers the next time, the window opens");
+		g.finish();
 		f.finish();
 	});
 
@@ -241,6 +273,37 @@ describe("the desktop app with a server saved in Settings", () => {
 		assert.equal(f.dialogs.length, 1);
 		assert.equal(f.saved(), null);
 		assert.equal(f.counts.relaunch, 1);
+		f.finish();
+	});
+});
+
+describe("a choice that cannot be saved", () => {
+	it("is told to the Settings row, restarts nothing, and the next try is not blocked", async () => {
+		const f = boot({ answers: [0, 0] });
+		await f.done;
+		f.failSaves();
+		const failed = (await f.call("lh:server:set", f.fromPage(), "learn.example.com")) as { ok: boolean; error?: string };
+		assert.equal(failed.ok, false);
+		assert.match(failed.error ?? "", /could not be saved/);
+		await settle();
+		assert.deepEqual([f.counts.relaunch, f.counts.quit], [0, 0]);
+		assert.equal(f.errorBoxes.length, 0, "the row shows it, not a second box");
+		f.failSaves(false);
+		assert.deepEqual(await f.call("lh:server:set", f.fromPage(), "learn.example.com"), { ok: true }, "not stuck on 'a question is open'");
+		await settle();
+		assert.equal(f.saved(), REMOTE);
+		assert.deepEqual([f.counts.relaunch, f.counts.quit], [1, 1]);
+		f.finish();
+	});
+
+	it("is told by the menu item in a box, because the menu has no row", async () => {
+		const f = boot({ setting: { address: REMOTE }, answers: [0], failSave: true });
+		await f.done;
+		appMenu(f).find((item) => item.label === USE_COMPUTER)!.click!();
+		await settle();
+		assert.equal(f.errorBoxes.length, 1);
+		assert.match(String(f.errorBoxes[0]![1]), /could not be saved/);
+		assert.equal(f.counts.relaunch, 0);
 		f.finish();
 	});
 });

@@ -74,6 +74,8 @@ test("Connect sends what was typed, untouched, and then shows that the app is re
 	assert.equal(byTest("server-message")!.textContent, "Restarting…");
 	assert.equal(byTest("server-message")!.getAttribute("role"), "status");
 	assert.ok(!byTest("server-message")!.className.split(/\s+/).includes("text-error"), "and Restarting… is not an error");
+	assert.equal(input().getAttribute("aria-invalid"), null, "nor is the box invalid");
+	assert.equal(input().getAttribute("aria-describedby"), null);
 	assert.equal(input().disabled, true);
 	assert.equal((byTest("server-connect") as HTMLButtonElement).disabled, true);
 });
@@ -87,6 +89,8 @@ test("a refusal is shown as an alert and the box is usable again with the text k
 	assert.ok(byTest("server-message")!.className.split(/\s+/).includes("text-error"), "an error looks like the other Settings errors");
 	assert.equal(input().disabled, false);
 	assert.equal(input().value, "http://learn.example.com");
+	assert.equal(input().getAttribute("aria-invalid"), "true", "the box says it is invalid");
+	assert.equal(input().getAttribute("aria-describedby"), byTest("server-message")!.id, "and points at the message that says why");
 });
 
 test("Cancel in the confirmation leaves no message and nothing locked", async () => {
