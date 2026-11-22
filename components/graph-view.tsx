@@ -885,7 +885,7 @@ export function GraphChromeRow({
 							type="button"
 							onClick={onOpenChains}
 							data-testid="open-chain-table"
-							className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
+							className="relative touch-target flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
 						>
 							<ListTreeIcon className="size-3" />
 							<span className="phone:sr-only">Chains</span>
@@ -1671,7 +1671,7 @@ export function GraphView({
 					// lh-no-drag: the card is placed anywhere on the canvas —
 					// when it lands in the top strip it must stay interactive
 					// over home.tsx's drag surface (2026-09-17).
-					className="lh-no-drag absolute z-10 w-80 max-w-[calc(100%-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
+					className="lh-no-drag absolute z-10 w-80 max-w-[calc(100%-1rem)] max-h-[calc(100%-1rem)] overflow-y-auto overscroll-contain rounded-xl border bg-card p-4 text-left shadow-lg"
 				>
 					<NodeCardText name={selected.node.name} statement={selected.node.statement} />
 					{selected.sourceIds.length > 0 ? (
@@ -1707,6 +1707,16 @@ export function GraphView({
 					) : (
 						<div className="mt-3 text-xs text-muted-foreground">No sessions recorded.</div>
 					)}
+					{/* A touch screen has no right click, so this is its way to the node's Delete
+					    (the right-click menu's one action); it opens the same confirm dialog. */}
+					<button
+						type="button"
+						data-testid="node-card-delete"
+						onClick={() => setDeletingNode({ id: selected.node.id, name: selected.node.name })}
+						className="mt-3 hidden min-h-11 w-full items-center justify-center rounded-lg border border-border/70 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground pointer-coarse:flex"
+					>
+						Delete node…
+					</button>
 				</div>
 			)}
 			{/* The chain table overlay (chains-overlay plan, 2026-09-29):
