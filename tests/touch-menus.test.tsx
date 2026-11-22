@@ -151,7 +151,7 @@ describe("the sidebar wires the button to its menus", () => {
 
 	it("the rows that hold the button are positioned, so the button sits at the row's right end", () => {
 		assert.match(source, /<SourceDragRow key=\{c\.id\} kind="source"[^>]*\sclassName="relative"/, "a session row");
-		assert.match(read("components/sidebar-folders.tsx"), /<SourceDragRow kind="folder"[\s\S]*?className=\{cn\("relative /, "a folder row");
+		assert.match(read("components/sidebar-folders.tsx"), /<SourceDragRow kind="folder"[^>]*?className=\{cn\("relative /, "a folder row");
 	});
 
 	it("a folder row has it too, and its second tap closes the folder menu", () => {
