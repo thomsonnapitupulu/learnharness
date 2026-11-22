@@ -298,7 +298,11 @@ function SideThreadSheet({ children, onClose }: { children: ReactNode; onClose: 
 	useLayoutEffect(() => { opener.current = document.activeElement; }, []); // before the body's own effect moves focus
 	useEffect(() => {
 		if (!sheet.current?.contains(document.activeElement)) sheet.current?.focus({ preventScroll: true });
-		return () => { const back = opener.current; if (back instanceof HTMLElement && back.isConnected) back.focus({ preventScroll: true }); };
+		return () => {
+			// Back to what opened it, but never into a text field: on a phone that would bring the keyboard up again.
+			const back = opener.current;
+			if (back instanceof HTMLElement && back.isConnected && !back.matches("input, textarea") && !back.isContentEditable) back.focus({ preventScroll: true });
+		};
 	}, []);
 	return (
 		<div data-testid="side-thread-sheet-frame" className="lh-no-drag fixed inset-x-0 z-60 flex flex-col justify-end" style={{ top: "var(--lh-vv-top, 0px)", height: "var(--lh-vvh, 100dvh)" }}

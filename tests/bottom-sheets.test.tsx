@@ -300,6 +300,19 @@ describe("the side question on a phone is a bottom sheet", () => {
 		assert.equal(w.doc.activeElement === opener, true, "closed: focus is back where it was");
 	});
 
+	it("closing the sheet never puts focus back into a text field (on a phone that brings the keyboard up again)", async () => {
+		const sheet = (open: boolean) => <>
+			<input data-testid="typing" />
+			{open && <SideThreadPopover state={sideState("popover")} chatId="chat" composer={() => null} {...handlers} />}
+		</>;
+		const w = await mountWindow(sheet(false), { phone: true });
+		const field = w.doc.querySelector('[data-testid="typing"]') as HTMLElement;
+		field.focus();
+		await w.render(sheet(true));
+		await w.render(sheet(false));
+		assert.equal(w.doc.activeElement === field, false);
+	});
+
 	it("a computer renders the floating window, as before", () => {
 		const html = renderToStaticMarkup(<SideThreadPopover state={sideState("popover")} chatId="chat" composer={() => null} {...handlers} />);
 		assert.match(html, /data-testid="side-thread-popover"/);
