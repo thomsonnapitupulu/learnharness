@@ -21,6 +21,7 @@ const { proxy } = await import("../proxy.ts");
 const session = await import("../src/server/access-session.ts");
 const { accessGate, clientAddress, isLocalRequest, loginOn, safeNext } = await import("../src/server/access-gate.ts");
 const http = await import("../src/server/access-http.ts");
+const { eventsResponse } = await import("../src/server/events-stream.ts");
 
 const PASSWORD = "a long enough password";
 const NO_PASSWORD_FILE = path.join(dir, "never-written.json");
@@ -405,6 +406,16 @@ describe("the access route behind Settings", () => {
 		assert.match(response.headers.get("set-cookie")!, /^__Host-lh_session=; .*Max-Age=0/);
 		assert.equal(accessGate(viaCaddy("/api/chats", { headers: secureCookie(old) })).refusal?.status, 401, "the old cookie no longer works");
 		assert.ok(session.readAccessState().password, "the password is kept");
+	});
+
+	it("ends a live event stream when every session ends, rather than telling a signed-out phone what the app is doing", async (t) => {
+		t.mock.timers.enable({ apis: ["setInterval"] });
+		const reader = eventsResponse().body!.getReader();
+		t.mock.timers.tick(25_000);
+		assert.equal(new TextDecoder().decode((await reader.read()).value), ": ping\n\n", "while the sessions stand, the stream keeps pinging");
+		session.signOutEverywhere();
+		t.mock.timers.tick(25_000);
+		assert.equal((await reader.read()).done, true, "the next heartbeat finds the key changed and closes it");
 	});
 
 	it("refuses anything else", async () => {

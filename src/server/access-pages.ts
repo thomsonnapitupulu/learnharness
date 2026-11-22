@@ -19,8 +19,8 @@ export function escapeHTML(text: string): string {
 }
 
 const STYLE = `
-:root{--bg:#141414;--fg:#e6e6e6;--card:#1c1c1c;--muted:#8d8d8d;--line:#434343;--err:#ef4444;color-scheme:dark light}
-@media (prefers-color-scheme:light){:root{--bg:#f5f5f3;--fg:#1a1a1a;--card:#fff;--muted:#6b6b6b;--line:#d4d4d0;--err:#c0392b}}
+:root{--bg:#141414;--fg:#e6e6e6;--card:#1c1c1c;--muted:#8d8d8d;--line:#7a7a7a;--err:#ef4444;color-scheme:dark light}
+@media (prefers-color-scheme:light){:root{--bg:#f5f5f3;--fg:#1a1a1a;--card:#fff;--muted:#6b6b6b;--line:#8a8a86;--err:#c0392b}}
 *{box-sizing:border-box}
 body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:max(1.5rem,env(safe-area-inset-top)) max(1.5rem,env(safe-area-inset-right)) max(1.5rem,env(safe-area-inset-bottom)) max(1.5rem,env(safe-area-inset-left));background:var(--bg);color:var(--fg);font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
 main{width:100%;max-width:22rem}
@@ -32,6 +32,7 @@ input,button{width:100%;height:3rem;font:inherit;border-radius:.6rem}
 input{padding:0 .9rem;color:inherit;background:var(--card);border:1px solid var(--line)}
 button,a.btn{font-weight:600;color:var(--bg);background:var(--fg);border:0;cursor:pointer}
 a.btn{display:grid;place-items:center;height:3rem;border-radius:.6rem;text-decoration:none}
+input::placeholder{color:var(--muted);opacity:1}
 input:focus-visible,button:focus-visible,a.btn:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
 .hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);opacity:0}
 `;
@@ -48,11 +49,14 @@ ${body}
 </main></body></html>`;
 }
 
-/** `locked` hides the form: nothing to type until the lock is cleared. With an
- * address set up (`canEmail`) it offers a button that emails an unlock link. */
-export function loginPage({ next = "/", message = "", locked = false, canEmail = false }: { next?: string; message?: string; locked?: boolean; canEmail?: boolean } = {}): string {
-	return shell("Sign in", `<p>Sign in to continue.</p>
+/** `message` is a problem (red); `note` is plain information, such as what
+ * happened to the unlock email. `locked` hides the form: nothing to type until
+ * the lock is cleared. With an address set up (`canEmail`) it offers a button
+ * that emails an unlock link. */
+export function loginPage({ next = "/", message = "", note = "", locked = false, canEmail = false }: { next?: string; message?: string; note?: string; locked?: boolean; canEmail?: boolean } = {}): string {
+	return shell("Sign in", `${locked ? "" : "<p>Sign in to continue.</p>"}
 ${message ? `<p class="err" role="alert">${escapeHTML(message)}</p>` : ""}
+${note ? `<p role="status">${escapeHTML(note)}</p>` : ""}
 ${locked ? (canEmail ? `<form method="post" action="/unlock"><button type="submit">Email me an unlock link</button></form>` : "") : `<form method="post" action="/login">
 <input type="hidden" name="next" value="${escapeHTML(next)}">
 <input class="hidden" type="text" name="username" value="owner" autocomplete="username" tabindex="-1" aria-hidden="true">
@@ -78,7 +82,7 @@ export function unlockedPage(): string {
 <a class="btn" href="/login">Go to sign in</a>`);
 }
 
-export function unlockFailedPage(message = "This unlock link has expired or was already used. Open the sign-in page to ask for a new one."): string {
+export function unlockFailedPage(message: string): string {
 	return shell("Unlock", `<p class="err" role="alert">${escapeHTML(message)}</p>
 <a class="btn" href="/login">Go to sign in</a>`);
 }
