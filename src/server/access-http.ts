@@ -38,19 +38,16 @@ function waitText(ms: number): string {
 	return minutes <= 1 ? "Too many wrong passwords. Try again in a minute." : `Too many wrong passwords. Try again in ${minutes} minutes.`;
 }
 
-function inText(ms: number): string {
-	const minutes = Math.max(1, Math.ceil(ms / 60_000));
-	if (minutes < 60) return minutes === 1 ? "a minute" : `${minutes} minutes`;
-	const hours = Math.ceil(minutes / 60);
-	return hours === 1 ? "an hour" : `${hours} hours`;
-}
-
-/** What the locked page says, given what just happened to the unlock email. */
+/** What the locked page says, given what just happened to the unlock email
+ * (nothing, for a page opened later: it cannot know how an earlier send went). */
 function lockedText(sent?: UnlockMail): string {
 	if (sent === "sent") return `${LOCKED} An unlock link was emailed to you. It works for 15 minutes.`;
 	if (sent === "failed") return `${LOCKED} The unlock email could not be sent (the server's log says why). To unlock it, run on the server: npm run access -- unlock`;
-	if (typeof sent === "object") return `${LOCKED} A link was emailed a little while ago. You can ask for another in ${inText(sent.waitMs)}.`;
-	if (mailConfig()) return `${LOCKED} Use the link emailed to you, or ask for a new one below. Or, on the server: npm run access -- unlock`;
+	if (typeof sent === "object") {
+		const minutes = Math.max(1, Math.ceil(sent.waitMs / 60_000));
+		return `${LOCKED} A link was emailed a little while ago. You can ask for another in ${minutes === 1 ? "a minute" : `${minutes} minutes`}.`;
+	}
+	if (mailConfig()) return `${LOCKED} Ask for an unlock link by email below, or run on the server: npm run access -- unlock`;
 	return `${LOCKED} To unlock it, run on the server: npm run access -- unlock`;
 }
 
@@ -91,7 +88,7 @@ export async function accessSignIn(request: Request): Promise<Response> {
 		const after = recordFailure(client, now);
 		console.warn(`[access] wrong password from ${client}${after.locked ? " (sign-in is now locked)" : ""}`);
 		if (after.locked) {
-			const sent = await emailUnlockLink(request, `Sign-in was locked after ${after.failures.length} wrong passwords within an hour, the latest from ${client}.`);
+			const sent = await emailUnlockLink(`Sign-in was locked after ${after.failures.length} wrong passwords within an hour, the latest from ${client}.`);
 			return html(423, loginPage({ next, locked: true, canEmail: mailConfig() !== null, message: lockedText(sent) }));
 		}
 		const delay = limiter.waitMs(client, now);
@@ -126,7 +123,7 @@ export async function accessUnlock(request: Request): Promise<Response> {
 		return html(200, unlockedPage());
 	}
 	if (!state.locked) return redirect("/login");
-	const sent = await emailUnlockLink(request, `You asked for an unlock link (from ${clientAddress(request)}).`);
+	const sent = await emailUnlockLink(`You asked for an unlock link (from ${clientAddress(request)}).`);
 	return html(200, loginPage({ locked: true, canEmail: mailConfig() !== null, message: lockedText(sent) }));
 }
 

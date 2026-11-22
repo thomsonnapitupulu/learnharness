@@ -18,7 +18,6 @@ const ACCESS_FILE = path.join(dir, "access.json");
 process.env.LH_AUTH_FILE = path.join(dir, "auth.json");
 delete process.env.LH_DESKTOP_SERVER;
 delete process.env.LH_DESKTOP_API_SECRET;
-delete process.env.LH_AWS_CLI;
 process.env.LH_ALLOWED_HOSTS = "learn.example.com,second.example.com";
 const OWNER = "owner@example.invalid";
 process.env.LH_ACCESS_EMAIL = OWNER;
@@ -64,14 +63,13 @@ beforeEach(() => {
 		sent.push(message);
 	});
 	process.env.LH_ACCESS_EMAIL = OWNER;
-	change({ locked: false, lockedAt: null, failures: [], unlock: null, mailed: [] });
+	change({ locked: false, lockedAt: null, failures: [], unlock: null, mailedAt: null });
 });
 
 after(() => {
 	mail.setMailSender();
 	delete process.env.LH_ALLOWED_HOSTS;
 	delete process.env.LH_ACCESS_EMAIL;
-	delete process.env.LH_AWS_CLI;
 });
 
 describe("the unlock token", () => {
@@ -138,34 +136,28 @@ describe("the unlock token", () => {
 	});
 });
 
-describe("the send limits", () => {
+describe("the send limit", () => {
 	const t0 = Date.UTC(2026, 10, 22, 12);
 
-	it("allow one email per 15 minutes", () => {
+	it("is one email per 15 minutes", () => {
 		const file = scratch();
 		assert.equal(session.mailWaitMs(t0, file), 0);
 		session.recordMail(t0, file);
 		assert.equal(session.mailWaitMs(t0 + MINUTE, file), 14 * MINUTE);
+		assert.equal(session.mailWaitMs(t0 + 15 * MINUTE - 1, file), 1);
 		assert.equal(session.mailWaitMs(t0 + 15 * MINUTE, file), 0);
 	});
 
-	it("allow five a day, counted over a rolling 24 hours", () => {
+	it("has no daily cap, which a stranger could use up to leave the owner without a link for a day", () => {
 		const file = scratch();
-		for (const minutes of [0, 15, 30, 45, 60]) session.recordMail(t0 + minutes * MINUTE, file);
-		assert.equal(session.mailWaitMs(t0 + 76 * MINUTE, file), 24 * HOUR - 76 * MINUTE, "a sixth waits until the first rolls off");
-		assert.equal(session.mailWaitMs(t0 + 24 * HOUR, file), 0);
-	});
-
-	it("keep only the newest five, and count a send that then failed", () => {
-		const file = scratch();
-		for (let i = 0; i < 8; i++) session.recordMail(t0 + i, file);
-		assert.equal(session.readAccessState(file).mailed.length, 5);
+		for (let i = 0; i < 12; i++) session.recordMail(t0 + i * 15 * MINUTE, file);
+		assert.equal(session.mailWaitMs(t0 + 12 * 15 * MINUTE, file), 0);
 	});
 });
 
 describe("where the email goes", () => {
 	it("needs one plain address and an allowed host, and sends from no-reply@ the first host", () => {
-		assert.deepEqual(mail.mailConfig({ LH_ACCESS_EMAIL: OWNER, LH_ALLOWED_HOSTS: "Learn.Example.com, other.example.com" }), { to: OWNER, from: "LearnHarness <no-reply@learn.example.com>" });
+		assert.deepEqual(mail.mailConfig({ LH_ACCESS_EMAIL: OWNER, LH_ALLOWED_HOSTS: "Learn.Example.com, other.example.com" }), { to: OWNER, from: "LearnHarness <no-reply@learn.example.com>", host: "learn.example.com" });
 		assert.equal(mail.mailConfig({ LH_ALLOWED_HOSTS: "learn.example.com" }), null, "no address");
 		assert.equal(mail.mailConfig({ LH_ACCESS_EMAIL: OWNER }), null, "no host to send from");
 		assert.equal(mail.mailConfig({ LH_ACCESS_EMAIL: OWNER, LH_ALLOWED_HOSTS: "bad host" }), null);
@@ -183,16 +175,18 @@ describe("where the email goes", () => {
 });
 
 describe("sending through the AWS CLI", { skip: process.platform === "win32" }, () => {
+	const realPath = process.env.PATH;
+	/** Puts an `aws` that runs `script` first on PATH, as the service's PATH would find the real one. */
 	const fakeAws = (script: string) => {
-		const bin = path.join(mkdtempSync(path.join(tmpdir(), "lh-aws-")), "aws");
-		writeFileSync(bin, `#!/bin/sh\n${script}\n`);
-		chmodSync(bin, 0o755);
-		return bin;
+		const bin = mkdtempSync(path.join(tmpdir(), "lh-aws-"));
+		writeFileSync(path.join(bin, "aws"), `#!/bin/sh\n${script}\n`);
+		chmodSync(path.join(bin, "aws"), 0o755);
+		process.env.PATH = `${bin}${path.delimiter}${realPath}`;
 	};
 
 	it("runs `aws sesv2 send-email` with the whole message as one JSON argument, through no shell", async () => {
 		const out = path.join(dir, "aws-args.txt");
-		process.env.LH_AWS_CLI = fakeAws(`printf '%s\\n' "$@" > '${out}'`);
+		fakeAws(`printf '%s\\n' "$@" > '${out}'`);
 		mail.setMailSender();
 		const text = "Line one\n\"quoted\" 'single' $(not run) `nor this` é\nhttps://learn.example.com/unlock?token=abc";
 		await mail.sendMail({ to: OWNER, from: "LearnHarness <no-reply@learn.example.com>", subject: "Subject $(x)", text });
@@ -207,19 +201,19 @@ describe("sending through the AWS CLI", { skip: process.platform === "win32" }, 
 	});
 
 	it("reports what the CLI said when it fails", async () => {
-		process.env.LH_AWS_CLI = fakeAws("echo 'An error occurred (MessageRejected): Email address is not verified.' >&2; exit 254");
+		fakeAws("echo 'An error occurred (MessageRejected): Email address is not verified.' >&2; exit 254");
 		mail.setMailSender();
 		await assert.rejects(mail.sendMail({ to: OWNER, from: "x@example.invalid", subject: "s", text: "t" }), /Email address is not verified/);
 	});
 
 	it("reports a CLI that is not installed", async () => {
-		process.env.LH_AWS_CLI = path.join(dir, "no-such-aws");
+		process.env.PATH = mkdtempSync(path.join(tmpdir(), "lh-empty-path-"));
 		mail.setMailSender();
 		await assert.rejects(mail.sendMail({ to: OWNER, from: "x@example.invalid", subject: "s", text: "t" }), /ENOENT/);
 	});
 
 	after(() => {
-		delete process.env.LH_AWS_CLI;
+		process.env.PATH = realPath;
 	});
 });
 
@@ -238,7 +232,7 @@ describe("when sign-in locks", () => {
 		assert.match(sent[0]!.text, /^Sign-in was locked after 20 wrong passwords within an hour, the latest from 198\.51\.100\.20\./);
 		assert.match(sent[0]!.text, /https:\/\/learn\.example\.com\/unlock\?token=[A-Za-z0-9_-]{43}\n/);
 		assert.equal(session.unlockTokenValid(tokenOf(sent[0]!.text), Date.now(), ACCESS_FILE), true);
-		assert.equal(state().mailed.length, 1);
+		assert.notEqual(state().mailedAt, null);
 	});
 
 	it("does not email again for a sign-in that arrives while it is locked", async () => {
@@ -268,7 +262,21 @@ describe("when sign-in locks", () => {
 		assert.match(page, /could not be sent/);
 		assert.match(page, /npm run access -- unlock/);
 		assert.ok(logged.some((line) => line.includes("could not email the unlock link: Email address is not verified.")));
-		assert.equal(state().mailed.length, 1, "a broken setup cannot be retried in a loop");
+		assert.notEqual(state().mailedAt, null, "a broken setup cannot be retried in a loop");
+	});
+
+	it("scrubs the address from what the CLI said before logging it, since an SES rejection can name it", async (t) => {
+		const logged: string[] = [];
+		for (const level of ["info", "warn", "error"] as const) t.mock.method(console, level, (...args: unknown[]) => void logged.push(args.join(" ")));
+		mail.setMailSender(async () => {
+			throw new Error(`Email address is not verified. The following identities failed the check in region US-EAST-1: ${OWNER}, ${OWNER.toUpperCase()}`);
+		});
+		lockNow();
+		await postUnlock();
+		const line = logged.find((entry) => entry.includes("could not email the unlock link"))!;
+		assert.ok(line.includes("Email address is not verified"), "what the CLI said still helps");
+		assert.ok(!line.toLowerCase().includes(OWNER), "but not the address, in any case");
+		assert.match(line, /\(address\)/);
 	});
 
 	it("keeps the address and the link out of the log, and the link out of the file", async (t) => {
@@ -290,12 +298,27 @@ describe("the Email me an unlock link button", () => {
 		lockNow();
 		const login = await getLogin().text();
 		assert.match(login, /<form method="post" action="\/unlock"><button type="submit">Email me an unlock link<\/button><\/form>/);
-		assert.match(login, /Use the link emailed to you, or ask for a new one below/);
+		assert.match(login, /Ask for an unlock link by email below, or run on the server: npm run access -- unlock/);
+		assert.ok(!/emailed to you/.test(login), "a page opened later cannot know that an earlier email arrived");
 		const answer = await postUnlock();
 		assert.equal(answer.status, 200);
 		assert.match(await answer.text(), /An unlock link was emailed to you/);
 		assert.equal(sent.length, 1);
 		assert.match(sent[0]!.text, /^You asked for an unlock link \(from 203\.0\.113\.7\)\./);
+	});
+
+	it("always links to the site's own name over https, whatever Host the request used", async () => {
+		lockNow();
+		// An IP literal passes the host check, so a request can name one; the link must not follow it.
+		const answer = await http.accessUnlock(viaCaddy("/unlock", {
+			method: "POST",
+			headers: { ...FORM, host: "203.0.113.66", origin: "http://203.0.113.66", "x-forwarded-host": "203.0.113.66", "x-forwarded-proto": "http" },
+			body: "",
+		}));
+		assert.equal(answer.status, 200);
+		assert.equal(sent.length, 1);
+		assert.match(sent[0]!.text, /\nhttps:\/\/learn\.example\.com\/unlock\?token=[A-Za-z0-9_-]{43}\n/);
+		assert.ok(!sent[0]!.text.includes("203.0.113.66"));
 	});
 
 	it("does nothing, and sends nothing, when sign-in is not locked", async () => {
@@ -311,19 +334,11 @@ describe("the Email me an unlock link button", () => {
 		const first = tokenOf(sent[0]!.text);
 		assert.match(await (await postUnlock()).text(), /emailed a little while ago\. You can ask for another in 15 minutes/);
 		assert.equal(sent.length, 1);
-		change({ mailed: state().mailed.map((at) => at - 16 * MINUTE) });
+		change({ mailedAt: state().mailedAt! - 16 * MINUTE });
 		assert.match(await (await postUnlock()).text(), /An unlock link was emailed to you/);
 		assert.equal(sent.length, 2);
 		assert.equal(session.unlockTokenValid(first, Date.now(), ACCESS_FILE), false);
 		assert.equal(session.unlockTokenValid(tokenOf(sent[1]!.text), Date.now(), ACCESS_FILE), true);
-	});
-
-	it("stops at five a day, and says when to try again", async () => {
-		lockNow();
-		const now = Date.now();
-		change({ mailed: [now - 12 * HOUR, now - 9 * HOUR, now - 6 * HOUR, now - 3 * HOUR, now - 20 * MINUTE] });
-		assert.match(await (await postUnlock()).text(), /ask for another in 12 hours/);
-		assert.equal(sent.length, 0);
 	});
 });
 

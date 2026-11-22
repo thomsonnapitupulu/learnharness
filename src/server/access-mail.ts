@@ -9,14 +9,13 @@
  *  - The mail goes out through Amazon SES by the AWS CLI (`aws sesv2
  *    send-email`), which signs with the EC2 instance's role: no keys, and no
  *    SDK in the app. The sender is no-reply@ the first LH_ALLOWED_HOSTS name,
- *    which must be a verified SES identity. LH_AWS_CLI names another binary.
- *  - Limits, kept in access.json: one email per 15 minutes, five a day.
+ *    which must be a verified SES identity, and the link points at that same
+ *    name over https, never at whatever Host a request used.
+ *  - Limit, kept in access.json: one email per 15 minutes.
  */
 
 import { execFile } from "node:child_process";
-import { hostOf } from "./access-gate.ts";
 import { issueUnlockToken, mailWaitMs, recordMail } from "./access-session.ts";
-import { requestProtocol } from "./desktop-access.ts";
 
 export interface Mail {
 	to: string;
@@ -28,6 +27,8 @@ export type MailSender = (mail: Mail) => Promise<void>;
 export interface MailConfig {
 	to: string;
 	from: string;
+	/** The site's own name, for the link in the email. */
+	host: string;
 }
 type Env = Record<string, string | undefined>;
 
@@ -40,7 +41,7 @@ export function mailConfig(env: Env = process.env): MailConfig | null {
 	const to = env.LH_ACCESS_EMAIL?.trim();
 	const host = (env.LH_ALLOWED_HOSTS ?? "").split(",")[0]?.trim().toLowerCase();
 	if (!to || !ADDRESS.test(to) || !host || !HOST.test(host)) return null;
-	return { to, from: `LearnHarness <no-reply@${host}>` };
+	return { to, from: `LearnHarness <no-reply@${host}>`, host };
 }
 
 /** t***@example.com, for the server's own terminal. */
@@ -48,7 +49,7 @@ export function maskEmail(address: string): string {
 	return address.replace(/^(.).*(@.*)$/, "$1***$2");
 }
 
-function sendWithAwsCli(mail: Mail, env: Env = process.env): Promise<void> {
+function sendWithAwsCli(mail: Mail): Promise<void> {
 	const input = JSON.stringify({
 		FromEmailAddress: mail.from,
 		Destination: { ToAddresses: [mail.to] },
@@ -56,7 +57,7 @@ function sendWithAwsCli(mail: Mail, env: Env = process.env): Promise<void> {
 	});
 	return new Promise((resolve, reject) => {
 		execFile(
-			env.LH_AWS_CLI || "aws",
+			"aws",
 			["sesv2", "send-email", "--no-cli-pager", "--cli-input-json", input],
 			{ timeout: 15_000, maxBuffer: 64 * 1024 },
 			(error, _stdout, stderr) => {
@@ -92,12 +93,15 @@ export function unlockMailText(reason: string, link: string): string {
 
 export type UnlockMail = "sent" | "failed" | "not-configured" | { waitMs: number };
 
-/** Emails a fresh unlock link when an address is set and the limits allow, and
- * says how that went (a failure is also logged, without the address or the
- * link). The link points at the host the request used, which the gate has
- * already checked against LH_ALLOWED_HOSTS. */
+/** What the CLI said, without the address: an SES rejection can name it. */
+function withoutAddress(text: string, address: string): string {
+	return text.split(address).join("(address)").replace(new RegExp(address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "(address)");
+}
+
+/** Emails a fresh unlock link when an address is set and the 15-minute gap
+ * allows, and says how that went. A failure is also logged, with what the CLI
+ * said but never the address or the link. */
 export async function emailUnlockLink(
-	request: Request,
 	reason: string,
 	{ env = process.env, now = Date.now(), file }: { env?: Env; now?: number; file?: string } = {},
 ): Promise<UnlockMail> {
@@ -106,13 +110,14 @@ export async function emailUnlockLink(
 	const waitMs = mailWaitMs(now, file);
 	if (waitMs > 0) return { waitMs };
 	recordMail(now, file);
-	const link = `${requestProtocol(request)}//${hostOf(request)}/unlock?token=${issueUnlockToken(now, file)}`;
+	const link = `https://${config.host}/unlock?token=${issueUnlockToken(now, file)}`;
 	try {
-		await sender({ ...config, subject: "LearnHarness sign-in is locked", text: unlockMailText(reason, link) });
+		await sender({ to: config.to, from: config.from, subject: "LearnHarness sign-in is locked", text: unlockMailText(reason, link) });
 		console.info("[access] unlock link emailed");
 		return "sent";
 	} catch (error) {
-		console.error(`[access] could not email the unlock link: ${error instanceof Error ? error.message : String(error)}`);
+		const said = error instanceof Error ? error.message : String(error);
+		console.error(`[access] could not email the unlock link: ${withoutAddress(said, config.to)}`);
 		return "failed";
 	}
 }

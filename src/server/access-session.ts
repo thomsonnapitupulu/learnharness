@@ -38,9 +38,9 @@ export const LOCK_FAILURES = 20;
 const LOCK_WINDOW_MS = 60 * MINUTE;
 /** An emailed unlock link works once, for this long. */
 export const UNLOCK_LINK_MS = 15 * MINUTE;
-/** At most one unlock email per MAIL_GAP_MS and MAIL_PER_DAY a day. */
+/** At most one unlock email per MAIL_GAP_MS. (No daily cap: a stranger could
+ * use it up and leave the owner without a link for a day.) */
 export const MAIL_GAP_MS = 15 * MINUTE;
-export const MAIL_PER_DAY = 5;
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 };
 
 // ── stored state ──────────────────────────────────────────────────────
@@ -57,12 +57,12 @@ export interface AccessState {
 	lastSignIn: { at: number; client: string } | null;
 	/** The pending unlock link: the sha256 of its token, never the token. */
 	unlock: { hash: string; expiresAt: number } | null;
-	/** When unlock emails went out (the newest MAIL_PER_DAY), for the limits. */
-	mailed: number[];
+	/** When the last unlock email went out, for the gap. */
+	mailedAt: number | null;
 }
 
 function emptyState(): AccessState {
-	return { version: 1, password: null, sessionKey: randomBytes(32).toString("hex"), locked: false, lockedAt: null, failures: [], lastSignIn: null, unlock: null, mailed: [] };
+	return { version: 1, password: null, sessionKey: randomBytes(32).toString("hex"), locked: false, lockedAt: null, failures: [], lastSignIn: null, unlock: null, mailedAt: null };
 }
 
 function normalize(raw: unknown): AccessState {
@@ -83,7 +83,7 @@ function normalize(raw: unknown): AccessState {
 	if (last && typeof last.at === "number" && typeof last.client === "string") state.lastSignIn = { at: last.at, client: last.client };
 	const unlock = record.unlock as { hash?: unknown; expiresAt?: unknown } | null | undefined;
 	if (unlock && typeof unlock.hash === "string" && typeof unlock.expiresAt === "number") state.unlock = { hash: unlock.hash, expiresAt: unlock.expiresAt };
-	if (Array.isArray(record.mailed)) state.mailed = record.mailed.filter((at): at is number => typeof at === "number").slice(-MAIL_PER_DAY);
+	if (typeof record.mailedAt === "number") state.mailedAt = record.mailedAt;
 	return state;
 }
 
@@ -188,18 +188,14 @@ export function redeemUnlockToken(token: unknown, now: number, file: string = AC
 
 /** How long until another unlock email may go out: 0 when one may go now. */
 export function mailWaitMs(now: number, file: string = ACCESS_FILE): number {
-	const recent = readAccessState(file).mailed.filter((at) => now - at < DAY);
-	if (recent.length === 0) return 0;
-	const gap = Math.max(...recent) + MAIL_GAP_MS - now;
-	const daily = recent.length >= MAIL_PER_DAY ? Math.min(...recent) + DAY - now : 0;
-	return Math.max(0, gap, daily);
+	const last = readAccessState(file).mailedAt;
+	return last === null ? 0 : Math.max(0, last + MAIL_GAP_MS - now);
 }
 
 /** Counts an unlock email, whether or not the send then works, so a broken
  * mail setup cannot be retried in a loop. */
 export function recordMail(now: number, file: string = ACCESS_FILE): void {
-	const state = readAccessState(file);
-	writeAccessState({ ...state, mailed: [...state.mailed.filter((at) => now - at < DAY), now].slice(-MAIL_PER_DAY) }, file);
+	writeAccessState({ ...readAccessState(file), mailedAt: now }, file);
 }
 
 // ── sessions ──────────────────────────────────────────────────────────

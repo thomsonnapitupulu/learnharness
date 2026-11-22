@@ -63,7 +63,7 @@ async function main(): Promise<number> {
 			console.log(`Wrong passwords: ${state.failures.length} recent${state.failures.length ? `, latest ${when(state.failures.at(-1)!.at)} from ${state.failures.at(-1)!.client}` : ""}`);
 			const mail = mailConfig();
 			console.log(`Unlock email:    ${mail ? `to ${maskEmail(mail.to)}, from ${mail.from}` : "not set up (needs LH_ACCESS_EMAIL and LH_ALLOWED_HOSTS in this shell)"}`);
-			console.log(`Last email sent: ${when(state.mailed.at(-1) ?? null)}`);
+			console.log(`Last email sent: ${when(state.mailedAt)}`);
 			return 0;
 		}
 		case "test-email": {
