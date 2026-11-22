@@ -9,6 +9,7 @@ import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 import { discardChatDeliveries } from "./jobs.ts";
 import { sideChats } from "./side-chat.ts";
+import { removeUploads, uploadIdsIn } from "./uploads.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -174,7 +175,15 @@ function finishChatDeletion(chatId: string, mode: ChatDeleteMode): Extract<ChatD
 
 function finishChatRecordDeletion(chatId: string): number {
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
+	// The record says which uploads are the session's (files sent up from a
+	// browser, src/server/uploads.ts): read it before it is gone, and remove the
+	// files only once the record itself is. Only what the learner's own messages
+	// carry counts: the agent may list the uploads folder in a tool result, and
+	// that must not make this session the owner of other sessions' files.
+	const own = (stores.chatStore.getChat(chatId)?.messages ?? []).filter((message) => (message as { role?: unknown }).role === "user");
+	const uploads = uploadIdsIn(JSON.stringify(own));
 	if (stores.chatStore.deleteChat(chatId)) {
+		removeUploads(uploads);
 		discardChatDeliveries(chatId);
 		clearTurnFailure(chatId);
 		sideChats.stopAll(chatId); // a running side answer has nowhere left to land

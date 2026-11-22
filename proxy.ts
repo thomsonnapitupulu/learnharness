@@ -11,10 +11,10 @@ import { apiRequestRefusal } from "./src/server/desktop-access.ts";
  *     It does nothing in desktop mode, and nothing on a machine that has no
  *     password and is reached directly.
  *
- * The one streamed document route is exempt from this proxy (below), so it
- * enforces both policies itself, avoiding Next's silently truncated Proxy body
- * clone. No public callback or worker bypass: legitimate self-HTTP still needs
- * the capability. */
+ * The streamed document route and the upload route are exempt from this proxy
+ * (below), so each enforces both policies itself, avoiding Next's silently
+ * truncated Proxy body clone. No public callback or worker bypass: legitimate
+ * self-HTTP still needs the capability. */
 export function proxy(request: NextRequest) {
 	const { pathname } = request.nextUrl;
 	if (pathname === "/api" || pathname.startsWith("/api/")) {
@@ -34,8 +34,8 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-	// Everything except the build's static files and the exact streamed
-	// document endpoint (not its subtree or other plugin routes). Must remain
-	// a static literal.
-	matcher: ["/((?!_next/static|api/plugins/[^/]+/documents/markdown/?$).*)"],
+	// Everything except the build's static files, the exact streamed document
+	// endpoint (not its subtree or other plugin routes) and the exact upload
+	// endpoint. Must remain a static literal.
+	matcher: ["/((?!_next/static|api/plugins/[^/]+/documents/markdown/?$|api/uploads/?$).*)"],
 };
