@@ -157,3 +157,11 @@ export const THEMES_DIR = path.join(/* turbopackIgnore: true */ DATA_ROOT, "them
 export const AUTH_FILE = process.env.LH_AUTH_FILE
 	? path.resolve(/* turbopackIgnore: true */ process.env.LH_AUTH_FILE)
 	: path.join(/* turbopackIgnore: true */ ROOT, "auth.json");
+
+/**
+ * THE SIGN-IN STORE (hosted server, mobile epic): the password hash and the
+ * key that signs session cookies (src/server/access-session.ts). A credential
+ * like auth.json, so it lives beside it, not in the data folder the agent's
+ * file tools may read; fs-shared.ts refuses it the same way.
+ */
+export const ACCESS_FILE = path.join(/* turbopackIgnore: true */ path.dirname(AUTH_FILE), "access.json");

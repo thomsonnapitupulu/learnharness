@@ -39,3 +39,15 @@ The login page, scrypt password hash, signed 30-day session cookie (ending after
 - Tests for the gate, cookie tampering and expiry, limits and lockout, unlock links, the CLI, and that desktop mode is unaffected.
 - README: a "Hosting on a server" section linking [aws-hosting.md](aws-hosting.md).
 - Not carried over from the paused patch: `electron/phone-access.cjs`, the `main.cjs` and `preload.cjs` changes, and the desktop Settings section.
+
+## As built (story 1)
+
+Built on the epic branch as the first story. Where the build differs from the design above:
+
+- **`access.json` sits beside `auth.json`, not inside the data folder.** The agent's file tools may read the data folder, but they refuse the credential files beside `auth.json`, so the password hash and the session key live there and `fs-shared.ts` refuses `access.json` too. On the server: `/srv/lh/access.json`, next to `/srv/lh/auth.json`.
+- **The command is `npm run access`, a TypeScript script run with `tsx`** (`scripts/access.ts`), like the repo's other scripts. `set-password` generates a password, or takes one line on standard input with `--stdin`.
+- **Settings → General** has "Sign out" and "Sign out of all devices". "Change password" in Settings is not built yet: the server command covers it, and every change signs all devices out.
+- **A new `/api/access` route** tells Settings whether the sign-in is on, and ends all sessions.
+- **The proxy now covers every page and API request** except the build's static files and the streamed document route, which runs the same checks in its own handler. Pages and APIs in the desktop app are unchanged: with the desktop capability there is no sign-in.
+- **On this machine** (a loopback Host that nothing forwarded) with no password set, the app answers as before, which keeps `npm run dev` and `npm start` working untouched. A request that came through a proxy, or addressed by a LAN IP, is refused until a password exists.
+- **Locked sign-in** shows how to unlock on the server. The email unlock link is the next story.

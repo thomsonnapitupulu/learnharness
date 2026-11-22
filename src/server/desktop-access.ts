@@ -24,14 +24,24 @@ export function desktopAPIAuthorized(
 	return actual.length === wanted.length && timingSafeEqual(actual, wanted);
 }
 
-/** Same-origin browser controls, not user authentication. Web/dev deliberately
- * retains the existing shared-server/API-key trust model. Never trust forwarded
- * origins or add CORS grants here. A public deployment needs its own access gate. */
+/** The scheme the browser used. Behind a TLS-terminating proxy (Caddy on the
+ * hosted server) the request URL says http while the browser spoke https, so
+ * X-Forwarded-Proto is trusted for the scheme and nothing else: the host
+ * always comes from Host. */
+export function requestProtocol(request: Request): "http:" | "https:" {
+	const forwarded = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+	if (forwarded === "https") return "https:";
+	if (forwarded === "http") return "http:";
+	return new URL(request.url).protocol === "https:" ? "https:" : "http:";
+}
+
+/** Same-origin browser controls, not user authentication (that is
+ * access-gate.ts). Never trust a forwarded host or add CORS grants here. */
 export function subscriptionRequestOrigin(request: Request): string | undefined {
 	try {
 		const url = new URL(request.url);
 		const host = request.headers.get("host") ?? url.host;
-		const addressed = new URL(`${url.protocol}//${host}`);
+		const addressed = new URL(`${requestProtocol(request)}//${host}`);
 		if (!["http:", "https:"].includes(addressed.protocol) || addressed.username || addressed.password || addressed.pathname !== "/" || addressed.search || addressed.hash) return;
 		return addressed.origin;
 	} catch { return; }
@@ -71,9 +81,13 @@ export function browserAPIRefusal(request: Request, env: Record<string, string |
 		return "This host name is not allowed. Use localhost or an IP address, or add the name to LH_ALLOWED_HOSTS.";
 	}
 	if (READ_METHODS.has(request.method.toUpperCase())) return;
+	if (crossSiteWrite(request)) return "Cross-site requests to the LearnHarness API are not allowed.";
+}
+
+/** A write another site or an opaque origin sent. Requests without Origin or
+ * Sec-Fetch-Site come from non-browser clients and are not cross-site. */
+export function crossSiteWrite(request: Request): boolean {
 	const site = request.headers.get("sec-fetch-site");
 	const origin = request.headers.get("origin");
-	if ((site !== null && site !== "same-origin") || (origin !== null && origin !== subscriptionRequestOrigin(request))) {
-		return "Cross-site requests to the LearnHarness API are not allowed.";
-	}
+	return (site !== null && site !== "same-origin") || (origin !== null && origin !== subscriptionRequestOrigin(request));
 }

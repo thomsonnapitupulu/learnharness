@@ -85,7 +85,7 @@ const SENSITIVE_HOME_PATHS = [
 
 /** Templates are deliberately included: their names do not guarantee safe contents. */
 const ENV_FILE = /^\.env(\..*)?$/i;
-const SUBSCRIPTION_FILES = ["chatgpt-credentials.json", "github-copilot-credentials.json", "xai-credentials.json"];
+const SUBSCRIPTION_FILES = ["chatgpt-credentials.json", "github-copilot-credentials.json", "xai-credentials.json", "access.json"]; // access.json: the hosted sign-in store (config.ts ACCESS_FILE)
 // Match the actual writers in store/auth.ts and electron/{chatgpt,subscription-store}.cjs.
 const CREDENTIAL_TEMP = /^(?:\.auth\.json\.tmp-\d+|(?:chatgpt|github-copilot|xai)-credentials\.json\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp)$/i;
 const ATOMIC_TEMP_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
