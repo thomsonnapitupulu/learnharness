@@ -41,6 +41,17 @@ export function visibleArea(reading: ViewportReading): { height: number; top: nu
 	return { height: Math.round(reading.height), top: Math.round(reading.offsetTop) };
 }
 
+/** True while installVisualViewportVars says a keyboard is up. */
+export const keyboardIsUp = (doc: Document) => doc.documentElement.hasAttribute("data-lh-keyboard");
+
+/** How much of the bottom of the layout viewport a keyboard covers, in px (0 with no keyboard). Fixed pop-ups are
+ * placed against the layout viewport, so they use this to stay above it. */
+export function keyboardCover(win: Window = window): number {
+	const viewport = win.visualViewport;
+	if (!viewport || !keyboardIsUp(win.document)) return 0;
+	return Math.max(0, Math.round(win.innerHeight - viewport.offsetTop - viewport.height));
+}
+
 /** Keeps the variables in step with the visual viewport, on a touch screen only. Returns the cleanup. */
 export function installVisualViewportVars(win: Window = window): () => void {
 	const viewport = win.visualViewport;

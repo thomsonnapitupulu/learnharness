@@ -1116,6 +1116,7 @@ function QuestionDockForm({
 			    is for dumping, soon dictated; the button submits); text mode
 			    keeps "Your answer" with Enter-to-submit. */}
 			<form
+				data-dock-footer=""
 				className="border-t border-border/60 p-1.5"
 				onSubmit={(e) => {
 					e.preventDefault();

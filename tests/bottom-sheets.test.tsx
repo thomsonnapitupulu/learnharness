@@ -9,12 +9,13 @@ import { afterEach, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime.js";
-import { installVisualViewportVars, KEYBOARD_MIN_PX, visibleArea } from "../lib/visual-viewport.ts";
+import { installVisualViewportVars, keyboardCover, keyboardIsUp, KEYBOARD_MIN_PX, visibleArea } from "../lib/visual-viewport.ts";
 import { DockDictationContext, DockDictationNote, DockMic, DICTATION_KEYLESS, type Dictation } from "../components/dictation.tsx";
 import { SidebarProvider } from "../components/sidebar.tsx";
 import { SideThreadBody, SideThreadPanel, SideThreadPopover } from "../components/side-thread.tsx";
 import { PracticeDock } from "../components/practice-dock.tsx";
 import { QuestionDock } from "../components/question-dock.tsx";
+import { ModelPickerPill } from "../components/model-picker-pill.tsx";
 import type { SideThreadState } from "../components/use-side-thread.ts";
 
 // Mobile epic, story 5b: the screen follows the on-screen keyboard, the answer docks
@@ -71,6 +72,7 @@ function fakeWindow({ coarse = true, viewport = true }: { coarse?: boolean; view
 		document: { documentElement: {
 			style: { setProperty: (name: string, value: string) => { props[name] = value; }, removeProperty: (name: string) => { delete props[name]; } },
 			setAttribute: (name: string) => { attrs.add(name); }, removeAttribute: (name: string) => { attrs.delete(name); },
+			hasAttribute: (name: string) => attrs.has(name),
 		} },
 	};
 	return {
@@ -215,6 +217,35 @@ async function mountWindow(element: React.ReactElement, { phone, visualViewport 
 	await render(element);
 	return { doc, root, frames, render, win };
 }
+
+describe("pop-ups are placed above the keyboard", () => {
+	it("how much of the bottom the keyboard covers: nothing without one, what is left under the visible area with one", () => {
+		const f = fakeWindow();
+		installVisualViewportVars(f.win);
+		assert.equal(keyboardIsUp(f.win.document), false);
+		assert.equal(keyboardCover(f.win), 0);
+		f.vv.height = 508; f.emit("resize"); f.frame();
+		assert.equal(keyboardIsUp(f.win.document), true);
+		assert.equal(keyboardCover(f.win), 844 - 508);
+		f.vv.offsetTop = 120; f.emit("scroll"); f.frame();
+		assert.equal(keyboardCover(f.win), 844 - 120 - 508, "panned down: the strip under the visible area is smaller");
+		f.vv.height = 844; f.vv.offsetTop = 0; f.emit("resize"); f.frame();
+		assert.equal(keyboardCover(f.win), 0, "keyboard gone");
+	});
+	it("a window with no visual viewport, or on a mouse, never has a cover", () => {
+		assert.equal(keyboardCover(fakeWindow({ viewport: false }).win), 0);
+		const mouse = fakeWindow({ coarse: false });
+		installVisualViewportVars(mouse.win);
+		mouse.vv.height = 300; mouse.emit("resize"); mouse.frame();
+		assert.equal(keyboardCover(mouse.win), 0, "the variables are never set on a computer");
+	});
+	it("the menu shell asks for the cover when it places a menu and when the keyboard changes", () => {
+		const source = read("components/menu-shell.tsx");
+		assert.match(source, /\{ width: window\.innerWidth, height: window\.innerHeight, hiddenBottom: keyboardCover\(\) \}/);
+		assert.match(source, /window\.visualViewport\?\.addEventListener\("resize", rePlace\)/);
+		assert.match(source, /window\.visualViewport\?\.removeEventListener\("resize", rePlace\)/);
+	});
+});
 
 describe("the shell on a phone with a keyboard", () => {
 	it("the shell is the visible part of the screen: its height and top come from the variables, it is fixed to the layout viewport while a keyboard is up, and it gives up the home-indicator padding", async () => {
@@ -381,6 +412,22 @@ describe("the answer docks on a phone", () => {
 		assert.match(source, /<DockMic \/>\s*<Button type="submit" disabled=\{!canSubmit\} className="ml-auto h-9 rounded-\[6px\] px-3\.5 text-sm font-medium phone:h-12 phone:flex-1 phone:rounded-\[10px\] phone:text-base"/);
 		assert.match(source, /<DockDictationNote className="px-2\.5 pt-1" \/>/);
 		assert.match(source, /className="flex items-center justify-between gap-2 p-1 phone:flex-wrap">\s*<EnterHint/, "Dismiss, the mic and Submit wrap on a 320px screen instead of overflowing");
+	});
+
+	it("on a 360px phone the model name is cut with an ellipsis, not wrapped, and the thinking level keeps its text", () => {
+		const pill = renderToStaticMarkup(<ModelPickerPill>deepseek-v4.1-flash</ModelPickerPill>);
+		assert.match(pill, /<button[^>]*class="[^"]*\bmin-w-0\b[^"]*"/);
+		assert.match(pill, /<span class="truncate text-card-foreground">deepseek-v4\.1-flash<\/span>/);
+		assert.doesNotMatch(pill, /shrink-0/, "the model pill is the one that gives way");
+		assert.match(renderToStaticMarkup(<ModelPickerPill className="shrink-0">low</ModelPickerPill>), /<button[^>]*class="[^"]* shrink-0"/);
+		const picker = read("components/model-picker.tsx");
+		assert.match(picker, /data-testid="stats-thinking"\s+className="shrink-0"/);
+		assert.match(picker, /className="relative flex min-w-0 items-center gap-1\.5" data-testid="model-control"/);
+	});
+	it("each dock marks its footer, so a field being typed in brings Submit into view with it (dock-height.ts, revealFocused)", () => {
+		assert.match(renderToStaticMarkup(practice), /<div data-testid="practice-thinking-field" data-dock-footer=""/);
+		assert.match(renderToStaticMarkup(question), /<form data-dock-footer="" class="border-t/);
+		assert.match(read("components/plugin-question-dock.tsx"), /<form data-dock-footer="" onSubmit=/);
 	});
 
 	it("the session shares its dictation with every dock, and the side sheet closes with its own control", () => {

@@ -420,7 +420,7 @@ describe("controlled plugin UI", () => {
 		const { document } = parseHTML(renderToStaticMarkup(<ModelPickerPill>Fixture model</ModelPickerPill>));
 		const trigger = document.querySelector("button")!;
 		for (const token of ["font-ui", "text-xs"]) assert.ok(trigger.classList.contains(token), token);
-		assert.equal(trigger.querySelector("span")!.className, "text-card-foreground", "label color stays native foreground");
+		assert.equal(trigger.querySelector("span")!.className, "truncate text-card-foreground", "label color stays native foreground (and a tight row cuts the name instead of wrapping it)");
 		assert.equal(trigger.querySelector("[aria-hidden]")!.className, "text-xs text-muted-foreground");
 	});
 

@@ -157,7 +157,7 @@ export function PluginQuestionDockContent({ viewReader, snapshot, chatId, draft,
 				<div ref={editor} className={unavailable || failed ? "hidden" : "min-w-0"} />
 			</div>
 			{/* Plugin DOM is intentionally outside the footer's native form. */}
-			<form onSubmit={event => { event.preventDefault(); void submit(); }} className="border-t border-border/60 p-1.5">
+			<form data-dock-footer="" onSubmit={event => { event.preventDefault(); void submit(); }} className="border-t border-border/60 p-1.5">
 				<div data-testid={snapshot.showThinking ? "thinking-field" : undefined}
 					className={snapshot.showThinking ? "rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50" : undefined}>
 					{snapshot.showThinking && <>

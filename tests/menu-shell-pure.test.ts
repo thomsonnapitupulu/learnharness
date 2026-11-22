@@ -80,6 +80,33 @@ describe("computeMenuPlacement — cap + position", () => {
 		assert.ok(!("right" in p.style));
 	});
 });
+describe("computeMenuPlacement — a phone keyboard covering the bottom (mobile epic, story 5b)", () => {
+	// 800px layout viewport; the keyboard covers the bottom 300, so 500px are visible.
+	const covered = { width: 390, height: 800, hiddenBottom: 300 };
+	it("room below the anchor ends where the keyboard starts", () => {
+		// down room = 500 − 8 − (340 + 4) = 148, not the 448 an uncovered 800px screen would give
+		const p = computeMenuPlacement(rect(300, 340), covered, 100, "down", "right");
+		assert.equal(p.side, "down");
+		assert.equal(p.maxHeight, 148);
+	});
+	it("a menu that only fits in the covered strip goes up instead", () => {
+		const p = computeMenuPlacement(rect(300, 340), covered, 250, "down", "right");
+		assert.equal(p.side, "up", "250px fits above (288) and not below (148)");
+	});
+	it("the 60% cap is of what can be seen", () => {
+		const p = computeMenuPlacement(rect(10, 40), covered, 600, "down", "right");
+		assert.equal(p.maxHeight, 0.6 * 500);
+	});
+	it("an up menu is still anchored from the bottom of the layout viewport, which the keyboard does not move", () => {
+		const p = computeMenuPlacement(rect(400, 440), covered, 100, "up", "right");
+		assert.equal(p.style.bottom, 800 - 400 + 4);
+	});
+	it("no keyboard, or none given: exactly as before", () => {
+		const plain = computeMenuPlacement(rect(10, 40), { width: 390, height: 800 }, 100, "down", "right");
+		assert.deepEqual(computeMenuPlacement(rect(10, 40), { width: 390, height: 800, hiddenBottom: 0 }, 100, "down", "right"), plain);
+		assert.equal(plain.maxHeight, 0.6 * 800);
+	});
+});
 describe("menuAnchorRect — the anchor seam", () => {
 	const doc = { querySelector: () => ({ getBoundingClientRect: () => ({ top: 1, bottom: 2, left: 3, right: 4 }) }) } as unknown as Pick<Document, "querySelector">;
 	it("prefers a virtual anchor rect when it yields one", () => {
