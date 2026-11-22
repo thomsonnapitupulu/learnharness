@@ -13,6 +13,13 @@
  * "This machine" means a loopback Host and a loopback visitor. Next fills
  * X-Forwarded-For from the socket when nothing upstream set it, and Caddy sets
  * it to the visitor's address, so a proxied request never passes for local.
+ *
+ * That rests on one assumption: Next listens on loopback only (`npm start` is
+ * `next start -H localhost`) and the proxy is the only way in. Next does not
+ * show the proxy the socket's address, so a client that reached Next directly
+ * could send its own Host and X-Forwarded-For and pass for local. With a
+ * password set it still needs a session; without one it would be let in. So
+ * never bind the server to another interface, and open only the proxy's ports.
  */
 
 import { isIP } from "node:net";
@@ -58,7 +65,7 @@ export function overHttps(request: Request): boolean {
 
 function isLoopbackAddress(address: string): boolean {
 	const bare = address.trim().toLowerCase().replace(/^\[|\]$/g, "");
-	return bare === "::1" || bare === "0:0:0:0:0:0:0:1" || (isIP(bare) === 4 && bare.startsWith("127.")) || /^::ffff:127\./.test(bare);
+	return bare === "::1" || (isIP(bare) === 4 && bare.startsWith("127.")) || /^::ffff:127\./.test(bare);
 }
 
 /** A loopback Host, from a loopback visitor. Next sets X-Forwarded-For to the
@@ -72,7 +79,7 @@ export function isLocalRequest(request: Request): boolean {
 	} catch {
 		return false;
 	}
-	if (!(hostname === "localhost" || hostname.endsWith(".localhost") || isLoopbackAddress(hostname))) return false;
+	if (!(hostname === "localhost" || isLoopbackAddress(hostname))) return false;
 	const forwarded = request.headers.get("x-forwarded-for");
 	return !forwarded || forwarded.split(",").every(isLoopbackAddress);
 }

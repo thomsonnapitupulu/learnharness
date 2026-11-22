@@ -60,14 +60,14 @@ describe("who counts as this machine", () => {
 	const ask = (host: string, headers: Record<string, string> = {}) => isLocalRequest(new Request(`http://${host}/`, { headers: { host, ...headers } }));
 
 	it("is a loopback Host from a loopback visitor, with or without Next's own X-Forwarded-For", () => {
-		for (const host of ["localhost:3000", "LOCALHOST", "app.localhost:3000", "127.0.0.1:3000", "127.3.4.5", "[::1]:3000"]) {
+		for (const host of ["localhost:3000", "LOCALHOST", "127.0.0.1:3000", "127.3.4.5", "[::1]:3000"]) {
 			assert.equal(ask(host), true, host);
 			for (const visitor of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.9.9.9"]) assert.equal(ask(host, { "x-forwarded-for": visitor }), true, `${host} from ${visitor}`);
 		}
 	});
 
 	it("is not another Host, whoever the visitor is", () => {
-		for (const host of ["192.168.1.20:3000", "learn.example.com", "localhost.evil.example", "127.0.0.1.nip.io", "10.0.0.5"]) {
+		for (const host of ["192.168.1.20:3000", "learn.example.com", "localhost.evil.example", "app.localhost:3000", "127.0.0.1.nip.io", "10.0.0.5"]) {
 			assert.equal(ask(host), false, host);
 			assert.equal(ask(host, { "x-forwarded-for": "127.0.0.1" }), false, host);
 		}
@@ -320,6 +320,15 @@ describe("signing in", () => {
 			const response = await post({ password: PASSWORD, next });
 			assert.equal(response.headers.get("location"), "/", next);
 		}
+	});
+
+	it("counts tries sent at once, so a burst cannot get past the backoff", async () => {
+		const ip = visitor();
+		const answers = await Promise.all(Array.from({ length: 30 }, () => post({ password: "wrong password here" }, ip)));
+		const statuses = answers.map((response) => response.status);
+		assert.equal(statuses.filter((status) => status === 401).length, 5, "only five get their password checked");
+		assert.equal(statuses.filter((status) => status === 429).length, 25, "the rest wait");
+		assert.equal(session.readAccessState().failures.filter((failure) => failure.client === ip).length, 5);
 	});
 
 	it("makes one address wait after five wrong passwords, and only that address", async () => {

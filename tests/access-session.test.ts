@@ -3,10 +3,11 @@
  * password hash, signed session cookies, the per-address backoff and the lock.
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { isSensitivePath } from "../src/agent/tools/fs-shared.ts";
 import {
 	LOCK_FAILURES,
 	LOCAL_SESSION_COOKIE,
@@ -94,7 +95,7 @@ describe("the stored state", () => {
 		await assert.rejects(setPassword("x".repeat(MIN_PASSWORD - 1), scratch()), /at least 16/);
 	});
 
-	it("notices a change even when the file keeps its size, and signs out everywhere", async () => {
+	it("signs out everywhere with a new key, and keeps the password", async () => {
 		const file = scratch();
 		await setPassword("a long enough password", file);
 		const before = readAccessState(file).sessionKey;
@@ -104,6 +105,25 @@ describe("the stored state", () => {
 		assert.notEqual(after, before);
 		assert.equal(after.length, before.length);
 		assert.ok(readAccessState(file).password, "the password survives");
+	});
+});
+
+describe("the agent's file tools", () => {
+	it("refuse access.json, and the temp file a crashed write could leave beside it", (t) => {
+		const file = scratch();
+		const home = path.join(tmpdir(), "lh-not-this-home");
+		const authFile = path.join(path.dirname(file), "auth.json");
+		assert.equal(isSensitivePath(file, home, authFile), true);
+		assert.equal(isSensitivePath(path.join(path.dirname(file), "notes.json"), home, authFile), false, "an ordinary file beside it is not caught");
+		let temp = "";
+		const rename = fs.renameSync;
+		t.mock.method(fs, "renameSync", (...args: Parameters<typeof rename>) => {
+			temp = String(args[0]);
+			return rename(...args);
+		});
+		writeAccessState(readAccessState(file), file);
+		assert.match(path.basename(temp), /^access\.json\.tmp-[0-9a-f-]{36}$/, "this is the name the real writer uses");
+		assert.equal(isSensitivePath(temp, home, authFile), true);
 	});
 });
 
@@ -178,14 +198,14 @@ describe("the backoff", () => {
 		const t = 1_000_000;
 		for (let i = 0; i < 5; i++) {
 			assert.equal(limiter.waitMs("a", t), 0);
-			limiter.fail("a", t);
+			limiter.attempt("a", t);
 		}
 		assert.equal(limiter.waitMs("a", t), 30_000);
-		limiter.fail("a", t);
+		limiter.attempt("a", t);
 		assert.equal(limiter.waitMs("a", t), 60_000);
-		limiter.fail("a", t);
+		limiter.attempt("a", t);
 		assert.equal(limiter.waitMs("a", t), 120_000);
-		for (let i = 0; i < 10; i++) limiter.fail("a", t);
+		for (let i = 0; i < 10; i++) limiter.attempt("a", t);
 		assert.equal(limiter.waitMs("a", t), 15 * 60_000);
 		assert.equal(limiter.waitMs("a", t + 15 * 60_000), 0);
 		assert.equal(limiter.waitMs("b", t), 0, "another address is unaffected");

@@ -56,6 +56,9 @@ export async function accessSignIn(request: Request): Promise<Response> {
 	const client = clientAddress(request);
 	const wait = limiter.waitMs(client, Date.now());
 	if (wait > 0) return html(429, loginPage({ next, message: waitText(wait) }), { "Retry-After": String(Math.ceil(wait / 1000)) });
+	// Count the try now, in the same breath as the check above: the password
+	// check below takes a moment, and tries sent at once must not all pass.
+	limiter.attempt(client, Date.now());
 
 	let ok = false;
 	try {
@@ -65,7 +68,6 @@ export async function accessSignIn(request: Request): Promise<Response> {
 	}
 	const now = Date.now();
 	if (!ok) {
-		limiter.fail(client, now);
 		const after = recordFailure(client, now);
 		console.warn(`[access] wrong password from ${client}${after.locked ? " (sign-in is now locked)" : ""}`);
 		if (after.locked) return html(423, loginPage({ next, locked: true, message: LOCKED_TEXT }));

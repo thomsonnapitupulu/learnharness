@@ -9,9 +9,9 @@
  *    It ends 30 days after sign-in and after 7 idle days. Replacing the key
  *    (sign out of all devices, a new password) ends every session at once.
  *  - Next compiles proxy.ts and each route into separate bundles, so a module
- *    variable is not shared between them. Every reader therefore goes to the
- *    file (a stat, and a parse only when it changed). Only the per-address
- *    backoff is kept in memory, and only the login route uses it.
+ *    variable is not shared between them. Every reader therefore reads the
+ *    file, which is tiny. Only the per-address backoff is kept in memory, and
+ *    only the login route uses it.
  */
 
 import { createHmac, randomBytes, randomInt, scrypt as nodeScrypt, timingSafeEqual } from "node:crypto";
@@ -75,33 +75,19 @@ function normalize(raw: unknown): AccessState {
 	return state;
 }
 
-let cached: { file: string; stamp: string; state: AccessState } | undefined;
-
 /** The current state. A missing or unreadable file means "no password", which
  * the gate treats as closed to everything but this machine. */
 export function readAccessState(file: string = ACCESS_FILE): AccessState {
-	let stamp: string;
 	try {
-		const stat = fs.statSync(/* turbopackIgnore: true */ file);
-		stamp = `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+		return normalize(JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ file, "utf8")));
 	} catch {
 		return emptyState();
 	}
-	if (cached?.file === file && cached.stamp === stamp) return cached.state;
-	let state: AccessState;
-	try {
-		state = normalize(JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ file, "utf8")));
-	} catch {
-		state = emptyState();
-	}
-	cached = { file, stamp, state };
-	return state;
 }
 
 export function writeAccessState(state: AccessState, file: string = ACCESS_FILE): void {
 	fs.mkdirSync(/* turbopackIgnore: true */ path.dirname(file), { recursive: true });
 	writeFileAtomicSync(file, JSON.stringify(state, null, "\t"), { mode: 0o600 });
-	cached = undefined;
 }
 
 // ── passwords ─────────────────────────────────────────────────────────
@@ -214,8 +200,10 @@ export function cookieValue(header: string | null | undefined, name: string): st
 
 // ── the login limiter ─────────────────────────────────────────────────
 
-/** Per-address backoff, in memory: 5 free tries, then each failure doubles
- * the wait from 30 seconds up to 15 minutes. The lock itself is persisted. */
+/** Per-address backoff, in memory: 5 free tries, then each try doubles the
+ * wait from 30 seconds up to 15 minutes. A try is counted when it starts, not
+ * when its slow password check ends, or tries sent at once would all get in.
+ * A right password clears the count. The lock itself is persisted. */
 export function createLimiter() {
 	const clients = new Map<string, { count: number; until: number }>();
 	return {
@@ -223,7 +211,7 @@ export function createLimiter() {
 			const entry = clients.get(client);
 			return entry ? Math.max(0, entry.until - now) : 0;
 		},
-		fail(client: string, now: number): void {
+		attempt(client: string, now: number): void {
 			const entry = clients.get(client) ?? { count: 0, until: 0 };
 			entry.count += 1;
 			const over = entry.count - PER_CLIENT_FREE_TRIES;
