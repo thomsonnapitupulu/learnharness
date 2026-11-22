@@ -198,13 +198,6 @@ Resources:
         - { Key: Name, Value: !Sub "${AWS::StackName}-data" }
         - { Key: lh-backup, Value: !Ref "AWS::StackName" }
 
-  DataVolumeAttachment:
-    Type: AWS::EC2::VolumeAttachment
-    Properties:
-      InstanceId: !Ref Server
-      VolumeId: !Ref DataVolume
-      Device: /dev/sdf
-
   SnapshotRole:
     Type: AWS::IAM::Role
     Properties:
@@ -283,6 +276,10 @@ Resources:
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs: { VolumeSize: !Ref RootVolumeGiB, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      # Attached here, not by a separate attachment resource: when the stack is deleted, the server is terminated first, which
+      # lets go of the disk cleanly. A separate attachment is detached from a running server, which hangs while the disk is mounted.
+      Volumes:
+        - { Device: /dev/sdf, VolumeId: !Ref DataVolume }
       # IMDSv2 only: a request that only fetches a page cannot read the server's credentials.
       MetadataOptions: { HttpTokens: required, HttpEndpoint: enabled }
       Tags:
@@ -322,7 +319,7 @@ Resources:
 
   BootstrapSignal:
     Type: AWS::CloudFormation::WaitCondition
-    DependsOn: [Server, DataVolumeAttachment]
+    DependsOn: Server
     Properties:
       Handle: !Ref BootstrapHandle
       Timeout: "1800"

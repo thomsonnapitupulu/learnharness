@@ -101,7 +101,7 @@ sudo /opt/learnharness/deploy/aws/update.sh main       # move to another branch 
 sudo /opt/learnharness/deploy/aws/update.sh --rebuild  # build again even if nothing new came
 ```
 
-The site is down for the few minutes the build takes, and your data is not touched. `update.sh` updates the app only. If a new version also changes the server's own setup (the service, the Caddyfile or its settings), run `sudo bash /opt/learnharness/deploy/aws/bootstrap.sh` afterwards: it is safe to repeat and rebuilds the app too.
+The site is down for the few minutes the build takes, and your data is not touched. If an update stops part-way (for example the build runs out of memory), the site stays down until you fix the cause and run `update.sh` again. It builds again then, because it skips the build only when the newest commit was built to the end and the site is running. `update.sh` updates the app only. If a new version also changes the server's own setup (the service, the Caddyfile or its settings), run `sudo bash /opt/learnharness/deploy/aws/bootstrap.sh` afterwards: it is safe to repeat and rebuilds the app too.
 
 Ubuntu installs security updates by itself. Some need a restart: about once a month, run `ls /var/run/reboot-required`, and if that file exists, `sudo reboot`. The site is back in about a minute, with the data and sign-ins as they were.
 
@@ -185,15 +185,17 @@ In a server shell, `journalctl -u learnharness -n 100` is the app's log, `journa
 | The site is down after a restart | `sudo systemctl status learnharness caddy`, then the journals above. |
 | An update fails in the build | Read the end of its output. If the build ran out of memory, run `update.sh --rebuild` again; the server has a 2 GiB swap file for this. |
 | The disk is full | `df -h /srv/lh`. Make the data disk bigger as described under [Updating](#updating). |
+| Deleting the stack fails on the migration bucket | The bucket still holds a file. Empty it ([Taking it down](#taking-it-down), step 1) and delete the stack again. |
 
 ## What was and was not tested
 
 Tested, in a sandbox, not on AWS:
 
 - The template passes `cfn-lint`, and `yamllint` with its relaxed rule set and lines of up to 200 characters.
-- The scripts (`bootstrap.sh`, `update.sh`, `access.sh`, `import-data.sh`, the import test, and the start-up script inside the template, rendered with sample values filled in) pass `shellcheck` at its strictest level, with no findings.
-- `import-data.sh` was run against fake server folders and zips: a plain zip, a repeat import (the old data is kept aside), a Finder-style zip, refusals, a zip without keys, an `s3://` address read with a stand-in for the `aws` command, a failed download, a zip with a symbolic link in it (refused, and what it pointed at is left alone), the old data kept root-only, and a site that does not come back. 38 checks, in `deploy/aws/test-import-data.sh` (run it with `sudo`; it takes a few seconds).
+- The scripts (`bootstrap.sh`, `update.sh`, `access.sh`, `import-data.sh`, the two tests, and the start-up script inside the template, rendered with sample values filled in) pass `shellcheck` at its strictest level, with no findings.
+- `import-data.sh` was run against fake server folders and zips: a plain zip, a repeat import (the old data is kept aside), a Finder-style zip, refusals, a zip without keys, an `s3://` address read with a stand-in for the `aws` command, a failed download, a zip with a symbolic link in it (refused, and what it pointed at is left alone), the old data kept root-only, a site that does not come back, a second import while one is running (refused), a data disk too small, a copy that fails half-way (the half-made copy is removed), a damaged zip, and files with odd modes (made readable by the service user and nobody else). 52 checks, in `deploy/aws/test-import-data.sh` (run it with `sudo`; it takes a few seconds).
+- `update.sh` was run against a local git repository with stand-ins for `runuser`, `systemctl`, `npm` and `curl`: nothing new, a new commit, a build that fails (the site stays down, and the next run builds again), a site started by hand after a failed build, `--rebuild`, moving to another branch, and bad arguments. 17 checks, in `deploy/aws/test-update.sh` (run it with `sudo`).
 - The sign-in command, the unlock email and the upload limits are covered by the earlier stories' tests.
 - The checksum for the Node 26.13.1 download in `bootstrap.sh` matches the one nodejs.org publishes (checked 2026-11-22), and the AWS CLI download address answers. The sandbox could not reach Google's or Caddy's download hosts, so the Chrome and Caddy addresses are the vendors' own documented ones, unchecked.
 
-**Not tested: anything that needs a real AWS account or a real Ubuntu 24.04 server.** That is the stack itself, the install (`bootstrap.sh`) end to end, the Node 26, Chrome, AWS CLI and Caddy downloads, the disk detection and first format, the certificate, mail through SES, snapshots and the restore steps above, and the `update.sh` build on a 4 GiB server. If any of those fails, the install log and journals above say where, and the fix is usually a line in `deploy/aws/bootstrap.sh`.
+**Not tested: anything that needs a real AWS account or a real Ubuntu 24.04 server.** That is the stack itself, the install (`bootstrap.sh`) end to end, the Node 26, Chrome, AWS CLI and Caddy downloads, the disk detection and first format, the certificate, mail through SES, snapshots and the restore steps above, deleting the stack (the data disk is attached through the server's own `Volumes` setting so that deleting the stack terminates the server first and lets go of the disk), and the `update.sh` build on a 4 GiB server. If any of those fails, the install log and journals above say where, and the fix is usually a line in `deploy/aws/bootstrap.sh`.

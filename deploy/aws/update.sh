@@ -6,11 +6,13 @@
 #   sudo /opt/learnharness/deploy/aws/update.sh --rebuild    build again even if nothing new came
 #
 # The site is down for the few minutes the build takes. Your data is not touched. Run it from a Session Manager shell.
-set -euo pipefail
+set -Eeuo pipefail   # -E: the ERR trap below also fires for failures inside functions
 
-APP_DIR=/opt/learnharness
+# The LH_UPDATE_* settings are for deploy/aws/test-update.sh. On the server the defaults are right.
+APP_DIR=${LH_UPDATE_APP_DIR:-/opt/learnharness}
 SERVICE_USER=learnharness
-CACHE_DIR=/var/cache/learnharness
+CACHE_DIR=${LH_UPDATE_CACHE_DIR:-/var/cache/learnharness}
+BUILT_FILE=${LH_UPDATE_BUILT_FILE:-/etc/learnharness/built-commit}   # the commit that was last built to the end
 
 [ "$(id -u)" -eq 0 ] || exec sudo "$0" "$@"
 as_service() { runuser -u "$SERVICE_USER" -- env "HOME=$CACHE_DIR" NEXT_TELEMETRY_DISABLED=1 "$@"; }
@@ -34,18 +36,22 @@ echo "==> Fetching $branch (now at $before)"
 as_service git fetch --depth 1 origin "$branch"
 as_service git checkout -f -B "$branch" FETCH_HEAD
 after=$(as_service git rev-parse --short HEAD)
-if [ "$before" = "$after" ] && [ "$rebuild" -eq 0 ]; then
-  echo "Already up to date at $after. Nothing to do (use --rebuild to build again)."
+commit=$(as_service git rev-parse HEAD)
+built=$(cat "$BUILT_FILE" 2>/dev/null || true)
+# Nothing to do only if this very commit was built to the end and the site is running: after a failed build it is neither.
+if [ "$rebuild" -eq 0 ] && [ "$built" = "$commit" ] && systemctl is-active --quiet learnharness; then
+  echo "Already up to date at $after, built and running. Nothing to do (use --rebuild to build again)."
   exit 0
 fi
 
-trap 'echo; echo "The update stopped part-way and the site may be down. Fix the cause and run this again, or look at: journalctl -u learnharness" >&2' ERR
+trap 'echo; echo "The update stopped part-way and the site may be down. Fix the cause and run this script again (it builds again), or look at: journalctl -u learnharness" >&2' ERR
 echo "==> Stopping the site, building $after"
 systemctl stop learnharness
 cd "$APP_DIR"
 as_service npm ci
 as_service npm run plugins:setup
 as_service npm run build
+printf '%s\n' "$commit" > "$BUILT_FILE"
 echo "==> Starting the site"
 systemctl start learnharness
 up=0

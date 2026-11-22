@@ -8,6 +8,7 @@
 # whatever the server holds now to a folder with "before-import" and the time in its name (nothing is deleted), puts
 # your data in its place with the right owner and permissions, and starts the site again.
 # The password and the sign-in state (access.json) are the server's own and are never touched.
+# One import runs at a time, a zip with links in it is refused, and nothing is changed until the new data is fully copied.
 set -euo pipefail
 
 # The LH_IMPORT_* settings are for deploy/aws/test-import-data.sh. On the server the defaults are right.
@@ -25,8 +26,18 @@ say() { printf '\n==> %s\n' "$*"; }
 [ "$(id -u)" -eq 0 ] || exec sudo "$0" "$@"
 source=$1
 
+[ -d "$DATA_DIR" ] || die "$DATA_DIR is not there. Is this the LearnHarness server?"
+# One import at a time: a second one would delete the first one's half-copied files.
+exec 9>"$DATA_DIR/.import.lock"
+flock -n 9 || die "another import is already running on this server. Wait for it to finish."
+
 work=$(mktemp -d /var/tmp/lh-import.XXXXXX)
-cleanup() { [ -n "${work:-}" ] && [ -d "$work" ] && rm -rf "${work:?}"; return 0; }
+# Whatever happens, the half-made copies go: before the swap they are all that a failure leaves, and after it they are gone.
+cleanup() {
+  rm -rf "${DATA_DIR:?}/.data-import" "${DATA_DIR:?}/.auth-import"
+  [ -n "${work:-}" ] && [ -d "$work" ] && rm -rf "${work:?}"
+  return 0
+}
 trap cleanup EXIT
 
 # The download from S3 needs the region the server runs in. The service's settings have it.
@@ -43,7 +54,10 @@ esac
 
 say "Unpacking and checking it"
 mkdir "$work/unzipped"
-unzip -q "$work/data.zip" -d "$work/unzipped"
+if ! unzip -q "$work/data.zip" -d "$work/unzipped" 2>"$work/unzip.err"; then
+  head -n 5 "$work/unzip.err" >&2
+  die "unzip could not unpack the zip. It may be damaged or incomplete, or hold paths unzip will not use. Nothing was changed."
+fi
 # A link inside the zip could point at any file on this server, and the commands below (chown, chmod) would follow it.
 if [ -n "$(find "$work/unzipped" -type l -print -quit)" ]; then
   die "the zip contains a symbolic link (an alias). Those are not copied, because a link can point at any file on this server. Zip the data folder and auth.json again without aliases."
@@ -67,10 +81,23 @@ fi
 
 say "Copying to the data disk"
 # Copied first, next to its final place on the same disk, so a full disk or a failure here changes nothing.
+need_kb=$(du -sk "$root" | cut -f1)
+have_kb=$(df -Pk "$DATA_DIR" | awk 'NR==2 {print $4}')
+if [ "$have_kb" -lt $((need_kb + need_kb / 10 + 10240)) ]; then
+  die "not enough room on the data disk: your data needs about $((need_kb / 1024)) MB and the disk has about $((have_kb / 1024)) MB free. Make the data disk bigger (docs/mobile/hosting-guide.md, Updating) and run this again. Nothing was changed."
+fi
 rm -rf "${DATA_DIR:?}/.data-import" "${DATA_DIR:?}/.auth-import"
-cp -a "$root/data" "$DATA_DIR/.data-import"
-[ "$have_auth" -eq 0 ] || cp -a "$root/auth.json" "$DATA_DIR/.auth-import"
+copy_in() {
+  if ! cp -a "$1" "$2" 2>"$work/cp.err"; then
+    head -n 5 "$work/cp.err" >&2
+    die "copying to the data disk failed (is it full? df -h $DATA_DIR). Nothing was changed."
+  fi
+}
+copy_in "$root/data" "$DATA_DIR/.data-import"
+[ "$have_auth" -eq 0 ] || copy_in "$root/auth.json" "$DATA_DIR/.auth-import"
 chown -R "$SERVICE_USER:" "$DATA_DIR/.data-import"
+# The app's data is the app's alone, whatever modes the zip carried (a file with mode 000 would be unreadable).
+chmod -R u+rwX,go-rwx "$DATA_DIR/.data-import"
 [ "$have_auth" -eq 0 ] || chown "$SERVICE_USER:" "$DATA_DIR/.auth-import"
 [ "$have_auth" -eq 0 ] || chmod 600 "$DATA_DIR/.auth-import"
 

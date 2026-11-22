@@ -116,5 +116,59 @@ check "exits 0" "[ $rc -eq 0 ]"
 check "the new data is owned by the service user, and auth.json has mode 600" "[ \"\$(stat -c %U $T/srv/data)\" = nobody ] && [ \"\$(stat -c %U $T/srv/data/chats/c1.json)\" = nobody ] && [ \"\$(stat -c '%U %a' $T/srv/auth.json)\" = 'nobody 600' ]"
 check "the old data folder is root's and closed to others (700)" "[ \"\$(stat -c '%U %a' \$(ls -d $T/srv/data.before-import-* | head -1))\" = 'root 700' ] && [ \"\$(stat -c %U \$(ls -d $T/srv/data.before-import-* | head -1)/chats/server-only.json)\" = root ]"
 check "the old auth.json is root's with mode 600" "[ \"\$(stat -c '%U %a' \$(ls -d $T/srv/auth.json.before-import-* | head -1))\" = 'root 600' ]"
+echo "--- 11. a second import while one is running is refused, and does not disturb the first"
+rm -rf "${T:?}/srv" && mkdir -p $T/srv/data $T/srv/.data-import && echo keep > $T/srv/data/keep.txt && echo half > $T/srv/.data-import/half-copied.txt
+exec 8>$T/srv/.import.lock && flock -n 8   # this shell plays the import that is running
+out=$(run $T/plain.zip 2>&1); rc=$?
+check "exits non-zero and says another import is running" "[ $rc -ne 0 ] && echo \"\$out\" | grep -q 'already running'"
+check "the server's data is untouched, and so is what the running import had copied so far" "[ -f $T/srv/data/keep.txt ] && [ -f $T/srv/.data-import/half-copied.txt ] && [ -z \"\$(ls $T/srv | grep before-import)\" ]"
+exec 8>&-   # the first import is over
+out=$(run $T/plain.zip 2>&1); rc=$?
+check "once it is over, an import goes through" "[ $rc -eq 0 ] && [ -f $T/srv/data/chats/c1.json ] && [ ! -e $T/srv/.data-import ]"
+echo "--- 12. a data disk too small: refused before anything is changed"
+mkdir -p $T/lowdisk
+cat > $T/lowdisk/df <<'EOF_DF'
+#!/bin/bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\nfake 1000 990 10 99%% /\n'
+EOF_DF
+chmod +x $T/lowdisk/df
+rm -rf "${T:?}/srv" && mkdir -p $T/srv/data && echo keep > $T/srv/data/keep.txt
+out=$(PATH=$T/lowdisk:$PATH run $T/plain.zip 2>&1); rc=$?
+check "exits non-zero and says there is not enough room" "[ $rc -ne 0 ] && echo \"\$out\" | grep -q 'not enough room'"
+check "the server's data is untouched and nothing is left half-made" "[ -f $T/srv/data/keep.txt ] && [ ! -e $T/srv/.data-import ] && [ ! -e $T/srv/.auth-import ] && [ -z \"\$(ls $T/srv | grep before-import)\" ]"
+echo "--- 13. the copy fails half-way (disk full): the half-made copy is removed and the data stays"
+mkdir -p $T/failcp
+cat > $T/failcp/cp <<'EOF_CP'
+#!/bin/bash
+for a in "$@"; do
+  case $a in
+    *.data-import) mkdir -p "$a" && echo partial > "$a/partial.json"; echo "cp: error writing '$a/x': No space left on device" >&2; exit 1 ;;
+  esac
+done
+exec /bin/cp "$@"
+EOF_CP
+chmod +x $T/failcp/cp
+rm -rf "${T:?}/srv" && mkdir -p $T/srv/data && echo keep > $T/srv/data/keep.txt
+out=$(PATH=$T/failcp:$PATH run $T/plain.zip 2>&1); rc=$?
+check "exits non-zero, shows what cp said and that nothing was changed" "[ $rc -ne 0 ] && echo \"\$out\" | grep -q 'No space left' && echo \"\$out\" | grep -q 'Nothing was changed'"
+check "the server's data is untouched" "[ -f $T/srv/data/keep.txt ] && [ -z \"\$(ls $T/srv | grep before-import)\" ]"
+check "the half-made copy is gone, and so is the work folder" "[ ! -e $T/srv/.data-import ] && [ -z \"\$(ls -d /var/tmp/lh-import.* 2>/dev/null)\" ]"
+echo "--- 14. a damaged zip is refused with a plain message"
+head -c 100 $T/plain.zip > $T/broken.zip
+rm -rf "${T:?}/srv" && mkdir -p $T/srv/data && echo keep > $T/srv/data/keep.txt
+out=$(run $T/broken.zip 2>&1); rc=$?
+check "exits non-zero and says unzip could not unpack it" "[ $rc -ne 0 ] && echo \"\$out\" | grep -q 'could not unpack'"
+check "the server's data is untouched and the work folder is gone" "[ -f $T/srv/data/keep.txt ] && [ -z \"\$(ls $T/srv | grep before-import)\" ] && [ -z \"\$(ls -d /var/tmp/lh-import.* 2>/dev/null)\" ]"
+echo "--- 15. whatever modes the zip carried, the service user can read and write its data and nobody else can"
+rm -rf "${T:?}/modes" && mkdir -p $T/modes/data/chats && echo '{}' > $T/modes/data/settings.json && echo '{"id":"m"}' > $T/modes/data/chats/m1.json && chmod 000 $T/modes/data/chats/m1.json && chmod 666 $T/modes/data/settings.json
+(cd $T/modes && zip -qr $T/modes.zip data)
+rm -rf "${T:?}/srv" && mkdir -p $T/srv
+out=$(LH_IMPORT_DATA_DIR=$T/srv LH_IMPORT_USER=nobody LH_IMPORT_SYSTEMCTL=true LH_IMPORT_HEALTH_URL=file:///etc/hostname bash $SCRIPT $T/modes.zip 2>&1); rc=$?
+check "exits 0" "[ $rc -eq 0 ]"
+check "the file that had mode 000 is now 600 and the one that had 666 is 600, both the service user's" "[ \"\$(stat -c '%U %a' $T/srv/data/chats/m1.json)\" = 'nobody 600' ] && [ \"\$(stat -c '%U %a' $T/srv/data/settings.json)\" = 'nobody 600' ]"
+check "the folders are 700" "[ \"\$(stat -c %a $T/srv/data)\" = 700 ] && [ \"\$(stat -c %a $T/srv/data/chats)\" = 700 ]"
+echo "--- 16. run somewhere that is not the server: refused"
+out=$(LH_IMPORT_DATA_DIR=$T/not-here LH_IMPORT_USER=root LH_IMPORT_SYSTEMCTL=true bash $SCRIPT $T/plain.zip 2>&1); rc=$?
+check "exits non-zero and says the data folder is not there" "[ $rc -ne 0 ] && echo \"\$out\" | grep -q 'is not there'"
 echo; echo "passed $pass, failed $fail"
 exit $fail

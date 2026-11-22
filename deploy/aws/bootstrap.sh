@@ -110,6 +110,8 @@ cd "$APP_DIR"
 as_service npm ci
 as_service npm run plugins:setup
 as_service npm run build
+# update.sh compares this with the newest commit to know whether a build ever finished.
+as_service git rev-parse HEAD > /etc/learnharness/built-commit
 
 say "Settings, service and Caddy"
 install -d -m 0755 /etc/learnharness
