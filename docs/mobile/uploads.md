@@ -12,6 +12,8 @@ The agent's file tools read the server's disk, not the visitor's phone. So in a 
 - **Folders** cannot be uploaded. Dropping one says so, and dropping a folder with files attaches the files.
 - **The desktop app on its own computer is unchanged:** it still opens the file and folder dialogs and attaches local paths. (Story 7 makes the desktop app, when it is pointed at a server, behave like a browser here, because a path on the computer means nothing on the server.)
 
+Screens (a desktop-size browser, because the phone layout is story 4's): [uploading](screens/s3-uploading.png), [attached](screens/s3-attached.png), [too large](screens/s3-too-large.png).
+
 ## How it works
 
 | Part | Where |
@@ -47,6 +49,6 @@ The agent's file tools read the server's disk, not the visitor's phone. So in a 
 
 ## Checked, and not checked
 
-Checked in this story: the route's gate, limits, names and clean-up in `tests/uploads.test.ts`; the browser side with a fake `XMLHttpRequest` in `tests/composer-attach.test.tsx` and `tests/file-path-drop-zone.test.tsx`; the proxy exemption in `tests/plugin-document-proxy.test.ts`; and the real production server (60 MiB in, byte-for-byte; 65 MiB refused with nothing left; no cookie, wrong host and cross-site writes refused; a dead connection leaves nothing; deleting a session removes its upload).
+Checked in this story: the route's gate, limits, names and clean-up in `tests/uploads.test.ts`; the browser side with a fake `XMLHttpRequest` in `tests/composer-attach.test.tsx` and `tests/file-path-drop-zone.test.tsx`; the proxy exemption in `tests/plugin-document-proxy.test.ts`; and the real production server behind simulated Caddy headers (46 checks: 60 MiB in byte-for-byte, exactly 64 MiB accepted, 64 MiB plus one byte and 65 MiB chunked refused with nothing left, no session, a forged cookie, a cross-site write, a wrong host and plain http refused, a connection killed mid-transfer leaves nothing, deleting a session removes its upload and nobody else's, and the seven-day sweep keeps what a session mentions).
 
 Not checked: a real phone's picker and camera (iOS HEIC photos arrive as the browser hands them over, with no conversion; whether a hidden file input opens from a home-screen web app on every iOS version), or a real Caddy in front.
