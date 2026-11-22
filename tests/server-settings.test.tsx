@@ -118,5 +118,5 @@ test("General shows the row between the update rows and the sign-out rows", () =
 	const dialog = readFileSync(new URL("../components/settings/settings-dialog.tsx", import.meta.url), "utf8");
 	const general = dialog.slice(dialog.indexOf('testid="section-general"'));
 	const [update, server, access] = ["<UpdateSettings", "<ServerSettings />", "<AccessSettings />"].map((tag) => general.indexOf(tag));
-	assert.ok(update > 0 && update < server! && server! < access!, `${update} ${server} ${access}`);
+	assert.ok(update! > 0 && update! < server! && server! < access!, `${update} ${server} ${access}`);
 });
