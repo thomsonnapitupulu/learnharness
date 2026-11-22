@@ -79,11 +79,11 @@ async function fixture({ phone = false, stored, matchMedia = true }: { phone?: b
 		}
 	};
 	const aside = () => doc.querySelector<HTMLElement>('[data-testid="sidebar"]')!;
-	const touch = async (type: "touchstart" | "touchend", x: number, y: number) => {
+	const touch = async (type: "touchstart" | "touchend", x: number, y: number, target = "sessions") => {
 		const event = new win.Event(type, { bubbles: true, cancelable: true });
 		const point = { clientX: x, clientY: y };
 		Object.assign(event, { touches: type === "touchend" ? [] : [point], changedTouches: [point] });
-		await act(async () => { doc.querySelector('[data-testid="sessions"]')!.dispatchEvent(event); });
+		await act(async () => { doc.querySelector(`[data-testid="${target}"]`)!.dispatchEvent(event); });
 	};
 	const key = async (target: Element, name: string) => {
 		const event = Object.assign(new win.Event("keydown", { bubbles: true, cancelable: true }), { key: name });
@@ -101,9 +101,10 @@ async function fixture({ phone = false, stored, matchMedia = true }: { phone?: b
 		toggleButton: () => doc.querySelector<HTMLElement>('button[aria-label="Open sidebar"]')!,
 		toggleSlot: () => doc.querySelector<HTMLElement>('button[aria-label="Open sidebar"]')!.parentElement!,
 		press: async (element: HTMLElement) => { await act(async () => { element.click(); }); },
-		swipe: async (from: [number, number], to: [number, number]) => {
-			await touch("touchstart", from[0], from[1]);
-			await touch("touchend", to[0], to[1]);
+		/** A swipe from one point to another, on the drawer's list or on the dimmed backdrop beside it. */
+		swipe: async (from: [number, number], to: [number, number], on: "sessions" | "sidebar-backdrop" = "sessions") => {
+			await touch("touchstart", from[0], from[1], on);
+			await touch("touchend", to[0], to[1], on);
 		},
 		goTo: async (next: string) => { pathname = next; await act(async () => { draw(); }); },
 		resize: async (nowPhone: boolean) => {
@@ -173,6 +174,20 @@ test("a swipe left on the drawer closes it; scrolling, short drags and a swipe r
 	assert.equal(f.isOpen(), true, "a swipe right leaves it open");
 	await f.swipe([250, 300], [100, 330]);
 	assert.equal(f.isOpen(), false, "150px left, nearly level: closed");
+});
+
+test("a swipe left on the dimmed strip beside the drawer closes it too, by the same rule", async () => {
+	const f = await fixture({ phone: true });
+	await f.press(f.toggleButton());
+	await f.swipe([360, 300], [200, 640], "sidebar-backdrop");
+	assert.equal(f.isOpen(), true, "a mostly vertical drag on the strip does nothing");
+	await f.swipe([360, 300], [330, 300], "sidebar-backdrop");
+	assert.equal(f.isOpen(), true, "30px is a touch, not a swipe");
+	await f.swipe([200, 300], [360, 300], "sidebar-backdrop");
+	assert.equal(f.isOpen(), true, "a swipe right leaves it open");
+	await f.swipe([360, 300], [250, 310], "sidebar-backdrop");
+	assert.equal(f.isOpen(), false, "110px left, nearly level: closed");
+	assert.equal(f.backdrop(), null);
 });
 
 test("going to another page closes the drawer", async () => {

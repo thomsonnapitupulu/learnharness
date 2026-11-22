@@ -143,7 +143,11 @@ export function accessGate(request: Request, { env = process.env, now = Date.now
 	}
 
 	const url = new URL(request.url);
-	if (PUBLIC_PATHS.includes(url.pathname) || PUBLIC_FILES.includes(url.pathname)) return {};
+	// The files are read-only: only a GET or HEAD for one skips the sign-in, so
+	// a POST, PUT or OPTIONS aimed at an icon is answered like any other
+	// request with no session, not passed on to the static file handler.
+	const publicFile = (request.method === "GET" || request.method === "HEAD") && PUBLIC_FILES.includes(url.pathname);
+	if (PUBLIC_PATHS.includes(url.pathname) || publicFile) return {};
 
 	const secure = overHttps(request);
 	const session = readSession(state.sessionKey, cookieValue(request.headers.get("cookie"), sessionCookieName(secure)), now);

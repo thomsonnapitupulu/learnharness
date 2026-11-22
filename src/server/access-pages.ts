@@ -43,7 +43,7 @@ function shell(title: string, body: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light"><meta name="robots" content="noindex">
 <meta name="theme-color" content="#141414" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f5f5f3" media="(prefers-color-scheme: light)">
-<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icons/icon-192.png" type="image/png"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <title>${escapeHTML(title)} · LearnHarness</title>
 <style>${STYLE}</style></head><body><main>
 <h1>LearnHarness</h1>

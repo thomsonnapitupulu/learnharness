@@ -1235,11 +1235,23 @@ export function SidebarFrame({ children }: { children: React.ReactNode }) {
 	useEffect(() => {
 		if (phone && open) asideRef.current?.focus({ preventScroll: true });
 	}, [phone, open]);
-	// A swipe: mostly sideways and far enough that scrolling the list never counts.
+	// A swipe left closes the drawer, on the drawer itself or on the dimmed strip
+	// beside it: mostly sideways and far enough that scrolling the list never counts.
 	const swipeFrom = useRef<{ x: number; y: number } | null>(null);
+	const swipe = phone ? {
+		onTouchStart: (e: React.TouchEvent) => { swipeFrom.current = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY }; },
+		onTouchEnd: (e: React.TouchEvent) => {
+			const from = swipeFrom.current;
+			swipeFrom.current = null;
+			const to = e.changedTouches[0];
+			if (!from || !to) return;
+			const dx = to.clientX - from.x;
+			if (dx < -60 && Math.abs(dx) > 2 * Math.abs(to.clientY - from.y)) close();
+		},
+	} : {};
 	return (
 		<>
-			{phone && open && <div data-testid="sidebar-backdrop" aria-hidden="true" className="fixed inset-0 z-40 bg-black/50" onClick={close} />}
+			{phone && open && <div data-testid="sidebar-backdrop" aria-hidden="true" className="fixed inset-0 z-40 bg-black/50" onClick={close} {...swipe} />}
 			<aside
 				ref={asideRef}
 				className={cn(
@@ -1257,15 +1269,7 @@ export function SidebarFrame({ children }: { children: React.ReactNode }) {
 					const tag = (e.target as HTMLElement).tagName;
 					if (e.key === "Escape" && open && !e.defaultPrevented && tag !== "INPUT" && tag !== "TEXTAREA") close();
 				} : undefined}
-				onTouchStart={phone ? (e) => { swipeFrom.current = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY }; } : undefined}
-				onTouchEnd={phone ? (e) => {
-					const from = swipeFrom.current;
-					swipeFrom.current = null;
-					const to = e.changedTouches[0];
-					if (!from || !to) return;
-					const dx = to.clientX - from.x;
-					if (dx < -60 && Math.abs(dx) > 2 * Math.abs(to.clientY - from.y)) close();
-				} : undefined}
+				{...swipe}
 			>
 				{children}
 			</aside>

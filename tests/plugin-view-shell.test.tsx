@@ -30,7 +30,7 @@ describe("plugin view host shell", () => {
 		assert.equal(region.parentElement, viewport.parentElement);
 		assert.equal(viewport.contains(region), false);
 		const shell = document.querySelector("header")?.parentElement; assert.ok(shell);
-		assert.ok(shell.classList.contains("h-dvh"));
+		assert.ok(shell.classList.contains("h-full"), "fills the app shell, which is the viewport height less the home-indicator inset");
 		assert.ok(!shell.classList.contains("overflow-y-auto"), "the full page is not the scroll owner");
 	});
 

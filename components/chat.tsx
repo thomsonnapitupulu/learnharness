@@ -1632,7 +1632,7 @@ export function Chat({
 		    dock overlays the column bottom (outside the scroller); a spacer in
 		    the transcript reserves its height. data-session-surface scopes the
 		    session's reading rules (no-wrap inline code/math, globals.css). */}
-		<div data-session-surface="" className="flex h-dvh">
+		<div data-session-surface="" className="flex h-full">
 			<div className="flex min-w-0 flex-1 flex-col">
 				{/* The top bar is its own block (owner, top-fade round 4): in flow
 				    above the scroller on the plain page background — no gradient. Its

@@ -21,6 +21,7 @@ const { proxy } = await import("../proxy.ts");
 const session = await import("../src/server/access-session.ts");
 const { accessGate, clientAddress, isLocalRequest, loginOn, PUBLIC_FILES, safeNext } = await import("../src/server/access-gate.ts");
 const http = await import("../src/server/access-http.ts");
+const pages = await import("../src/server/access-pages.ts");
 const { eventsResponse } = await import("../src/server/events-stream.ts");
 
 const PASSWORD = "a long enough password";
@@ -199,6 +200,29 @@ describe("with a password set", () => {
 			assert.deepEqual(accessGate(viaCaddy(file)), {}, file);
 			assert.deepEqual(accessGate(viaCaddy(`${file}?v=2`)), {}, `${file} with a query`);
 			assert.deepEqual(accessGate(onServer(file)), {}, `${file} on the server itself`);
+		}
+	});
+
+	it("opens the home-screen files for reading only: a POST, PUT, PATCH, DELETE or OPTIONS still needs a session", () => {
+		for (const file of PUBLIC_FILES) {
+			assert.deepEqual(accessGate(viaCaddy(file, { method: "HEAD" })), {}, `${file} HEAD`);
+			for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+				const init = method === "OPTIONS" || method === "DELETE" ? { method } : { method, body: "x" };
+				assert.equal(accessGate(viaCaddy(file, init)).refusal?.status, 401, `${file} ${method}`);
+				assert.equal(accessGate(onServer(file, init)).refusal?.status, 401, `${file} ${method} on the server itself`);
+			}
+			// Signed in, the gate has no say about the method: the file handler answers.
+			assert.equal(accessGate(viaCaddy(file, { method: "POST", body: "x", headers: secureCookie() })).refusal, undefined, `${file} POST with a session`);
+		}
+	});
+
+	it("links the same manifest and icons from the sign-in page", () => {
+		const page = pages.loginPage();
+		assert.match(page, /<link rel="manifest" href="\/manifest\.webmanifest">/);
+		assert.match(page, /<link rel="icon" href="\/icons\/icon-192\.png" type="image\/png">/);
+		assert.match(page, /<link rel="apple-touch-icon" href="\/icons\/apple-touch-icon\.png">/);
+		for (const href of page.match(/<link rel="[^"]+" href="([^"]+)"/g)!.map((tag) => tag.match(/href="([^"]+)"/)![1]!)) {
+			assert.ok(PUBLIC_FILES.includes(href), `${href} is linked from the sign-in page, so it must be open without a session`);
 		}
 	});
 
