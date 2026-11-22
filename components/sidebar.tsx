@@ -104,7 +104,7 @@ declare global {
 
 /** Below this width (Tailwind's `md`) the sidebar is a drawer over the page:
  * closed on every load, closed again by a tap outside it, a swipe left or
- * picking something. The one number the CSS `max-md:` variants and this agree on. */
+ * picking something. The one number the CSS `phone:` variants and this agree on. */
 const PHONE_QUERY = "(max-width: 767px)";
 
 const SidebarContext = createContext<{ open: boolean; toggle: () => void; phone: boolean; close: () => void }>({
@@ -177,7 +177,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, []);
 
 	useEffect(() => {
-		if (typeof window.matchMedia !== "function") return;
+		// The desktop app keeps its own layout at every width (a narrow or zoomed
+		// window there is not a phone); the phone: styles skip html.lh-electron too.
+		if (IS_ELECTRON || typeof window.matchMedia !== "function") return;
 		const query = window.matchMedia(PHONE_QUERY);
 		const sync = () => {
 			setPhone(query.matches);
@@ -256,8 +258,8 @@ export function SidebarToggle() {
 	return (
 		<span
 			className={cn(
-				"sidebar-motion lh-no-drag relative flex h-9 shrink-0 overflow-hidden duration-200 max-md:h-11",
-				collapsed ? "w-0 -mr-3" : "w-9 mr-0 lh-closed-toggle max-md:w-11",
+				"sidebar-motion lh-no-drag relative flex h-9 shrink-0 overflow-hidden duration-200 phone:h-11",
+				collapsed ? "w-0 -mr-3" : "w-9 mr-0 lh-closed-toggle phone:w-11",
 			)}
 		>
 			<Hint label="Open sidebar" action="toggle-sidebar">
@@ -268,7 +270,7 @@ export function SidebarToggle() {
 				aria-hidden={collapsed}
 				tabIndex={collapsed ? -1 : 0}
 				onClick={toggle}
-				className={cn("sidebar-motion duration-200 max-md:size-11", collapsed ? "pointer-events-none opacity-0" : "opacity-100")}
+				className={cn("sidebar-motion duration-200 phone:size-11", collapsed ? "pointer-events-none opacity-0" : "opacity-100")}
 			>
 				{/* Owner, round 6: size-4, SAME as the close glyph — the toggle
 				    must not grow when the sidebar is closed (it did: size-5 here).
@@ -881,6 +883,7 @@ function SessionsSidebar() {
 						<Link
 							href="/"
 							aria-label="Home"
+							onClick={close}
 							className="lh-no-drag flex size-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50"
 						>
 							<LhMark className="size-6" />
@@ -905,7 +908,7 @@ function SessionsSidebar() {
 						type="button"
 						data-testid="new-session"
 						title="Teaching"
-						onClick={() => void newSession()}
+						onClick={() => { close(); void newSession(); }}
 						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<PlusIcon className="size-3 shrink-0" />
@@ -916,7 +919,7 @@ function SessionsSidebar() {
 						type="button"
 						data-testid="new-session-practice"
 						title="Practice"
-						onClick={() => router.push("/chat/new?mode=practice")}
+						onClick={() => { close(); router.push("/chat/new?mode=practice"); }}
 						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<DumbbellIcon className="size-3 shrink-0" />
@@ -1220,27 +1223,40 @@ function SessionsSidebar() {
 
 /** The sidebar's frame: in line beside the page on a computer; on a phone a
  * drawer over it, with a dimmed backdrop. The drawer closes on a tap outside it,
- * a swipe left, or any change of page (a session picked, a new session, home). */
+ * a swipe left, Escape, or any change of page (a session picked, a new session,
+ * home). Opened, it takes focus; AppShell makes the page behind it inert. */
 export function SidebarFrame({ children }: { children: React.ReactNode }) {
 	const { open, phone, close } = useSidebar();
 	const pathname = usePathname();
+	const asideRef = useRef<HTMLElement>(null);
 	useEffect(() => {
 		close();
 	}, [pathname, close]);
+	useEffect(() => {
+		if (phone && open) asideRef.current?.focus({ preventScroll: true });
+	}, [phone, open]);
 	// A swipe: mostly sideways and far enough that scrolling the list never counts.
 	const swipeFrom = useRef<{ x: number; y: number } | null>(null);
 	return (
 		<>
 			{phone && open && <div data-testid="sidebar-backdrop" aria-hidden="true" className="fixed inset-0 z-40 bg-black/50" onClick={close} />}
 			<aside
+				ref={asideRef}
 				className={cn(
 					"sidebar-motion shrink-0 overflow-hidden duration-200",
-					phone ? cn("fixed inset-y-0 left-0 z-50", open ? "w-[min(20rem,85vw)] shadow-2xl" : "w-0") : open ? "w-72" : "w-0",
+					phone ? cn("fixed inset-y-0 left-0 z-50 outline-none", open ? "w-[min(20rem,85vw)] shadow-2xl" : "w-0") : open ? "w-72" : "w-0",
 				)}
+				aria-label="Sidebar"
 				aria-hidden={!open}
 				// A closed drawer is off screen, so nothing in it may take focus or be read out.
 				inert={phone && !open}
+				tabIndex={phone ? -1 : undefined}
 				data-testid="sidebar"
+				onKeyDown={phone ? (e) => {
+					// Escape closes it, unless a field inside is using the key (rename, search).
+					const tag = (e.target as HTMLElement).tagName;
+					if (e.key === "Escape" && open && !e.defaultPrevented && tag !== "INPUT" && tag !== "TEXTAREA") close();
+				} : undefined}
 				onTouchStart={phone ? (e) => { swipeFrom.current = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY }; } : undefined}
 				onTouchEnd={phone ? (e) => {
 					const from = swipeFrom.current;
@@ -1257,10 +1273,22 @@ export function SidebarFrame({ children }: { children: React.ReactNode }) {
 	);
 }
 
+/** While the phone drawer is open, the page behind it is inert: a keyboard or a
+ * screen reader stays in the drawer, and the dimmed page cannot be used through it. */
+export function useInertBehindDrawer(page: HTMLElement | null) {
+	const { open, phone } = useSidebar();
+	useEffect(() => {
+		if (!page || !phone || !open) return;
+		page.setAttribute("inert", "");
+		return () => page.removeAttribute("inert");
+	}, [page, phone, open]);
+}
+
 /** The app frame: sidebar inline + content. Rendered once in the root layout. */
 export function AppShell({ children }: { children: React.ReactNode }) {
 	const [contentRoot, setContentRoot] = useState<HTMLElement | null>(null);
 	const pathname = usePathname();
+	useInertBehindDrawer(contentRoot);
 	return (
 		<HostRouteLifetimeProvider pathname={pathname}>
 		<HostContentRootContext.Provider value={contentRoot}>

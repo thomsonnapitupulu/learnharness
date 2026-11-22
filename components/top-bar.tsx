@@ -83,7 +83,7 @@ export function TopBar({
 		<header
 			ref={header}
 			onMouseDown={onMouseDown}
-			className={`${drag ? "lh-drag " : ""}${sidebarToggle ? "" : "lh-native-window-clearance "}lh-wco-gutter flex h-15 select-none items-center gap-3 border-b border-border px-3 max-md:h-[calc(3rem+env(safe-area-inset-top))] max-md:pt-[env(safe-area-inset-top)]`}
+			className={`${drag ? "lh-drag " : ""}${sidebarToggle ? "" : "lh-native-window-clearance "}lh-wco-gutter flex h-15 select-none items-center gap-3 border-b border-border px-3 phone:h-[calc(3rem+env(safe-area-inset-top))] phone:pt-[env(safe-area-inset-top)]`}
 		>
 			{sidebarToggle && <SidebarToggle />}
 			{children}

@@ -26,8 +26,6 @@ export const metadata: Metadata = {
 	manifest: "/manifest.webmanifest",
 	icons: { icon: "/icons/icon-192.png", apple: "/icons/apple-touch-icon.png" },
 	appleWebApp: { capable: true, title: "LearnHarness", statusBarStyle: "default" },
-	// Next writes the standard mobile-web-app-capable; iOS before 16.4 only reads this one.
-	other: { "apple-mobile-web-app-capable": "yes" },
 };
 
 /** viewport-fit=cover lets the page use the whole screen when opened from the

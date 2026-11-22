@@ -4,6 +4,17 @@
 @source not inline("container");
 
 @custom-variant dark (&:is(.dark *));
+/* Phone width (mobile epic, story 4): below 768px, in a browser. The desktop app
+   (.lh-electron, set on <html> by SidebarProvider) keeps its own layout at every
+   width, so a narrow or zoomed window there is not turned into a phone. The same
+   line is PHONE_QUERY in components/sidebar.tsx. */
+@custom-variant phone {
+	@media (max-width: 767px) {
+		&:where(:not(.lh-electron *)) {
+			@slot;
+		}
+	}
+}
 
 /*
  * THE SKIN — wave 5. Design tokens, the single place to restyle the app.

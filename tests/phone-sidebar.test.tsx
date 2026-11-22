@@ -1,9 +1,10 @@
 import React, { act } from "react";
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
 import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime.js";
-import { SidebarFrame, SidebarProvider, SidebarToggle } from "../components/sidebar.tsx";
+import { SidebarFrame, SidebarProvider, SidebarToggle, useInertBehindDrawer } from "../components/sidebar.tsx";
 
 // Story 4: below 768px the sidebar is a drawer over the page. These tests mount
 // the real provider, toggle and frame with a controllable `matchMedia`.
@@ -39,6 +40,10 @@ async function fixture({ phone = false, stored, matchMedia = true }: { phone?: b
 		});
 	}
 	let pathname = "/chat/a";
+	// linkedom has no focus model: the last focus() call is the active element.
+	let active: Element | null = null;
+	Object.defineProperty(doc, "activeElement", { configurable: true, get: () => active ?? doc.body });
+	win.HTMLElement.prototype.focus = function (this: HTMLElement) { active = this; };
 	const previous = new Map<string, PropertyDescriptor | undefined>();
 	for (const [name, next] of Object.entries({
 		React, window: win, document: doc, Node: win.Node, HTMLElement: win.HTMLElement, Element: win.Element,
@@ -49,12 +54,17 @@ async function fixture({ phone = false, stored, matchMedia = true }: { phone?: b
 	}
 	const { createRoot } = await import("react-dom/client");
 	const root = createRoot(doc.getElementById("root")!);
+	function Page() {
+		const [element, setElement] = React.useState<HTMLElement | null>(null);
+		useInertBehindDrawer(element);
+		return <main ref={setElement} data-testid="page"><SidebarToggle /></main>;
+	}
 	function Harness() {
 		return (
 			<PathnameContext.Provider value={pathname}>
 				<SidebarProvider>
-					<SidebarFrame><div data-testid="sessions">Sessions</div></SidebarFrame>
-					<main><SidebarToggle /></main>
+					<SidebarFrame><div data-testid="sessions">Sessions <input data-testid="field" /></div></SidebarFrame>
+					<Page />
 				</SidebarProvider>
 			</PathnameContext.Provider>
 		);
@@ -75,9 +85,17 @@ async function fixture({ phone = false, stored, matchMedia = true }: { phone?: b
 		Object.assign(event, { touches: type === "touchend" ? [] : [point], changedTouches: [point] });
 		await act(async () => { doc.querySelector('[data-testid="sessions"]')!.dispatchEvent(event); });
 	};
+	const key = async (target: Element, name: string) => {
+		const event = Object.assign(new win.Event("keydown", { bubbles: true, cancelable: true }), { key: name });
+		await act(async () => { target.dispatchEvent(event); });
+		return event;
+	};
 	return {
-		doc, writes, queries,
+		doc, writes, queries, key,
 		aside,
+		page: () => doc.querySelector<HTMLElement>('[data-testid="page"]')!,
+		field: () => doc.querySelector<HTMLElement>('[data-testid="field"]')!,
+		sessions: () => doc.querySelector<HTMLElement>('[data-testid="sessions"]')!,
 		backdrop: () => doc.querySelector<HTMLElement>('[data-testid="sidebar-backdrop"]'),
 		isOpen: () => aside().getAttribute("aria-hidden") === "false",
 		toggleButton: () => doc.querySelector<HTMLElement>('button[aria-label="Open sidebar"]')!,
@@ -117,7 +135,7 @@ test("on a phone the drawer starts closed whatever the computer had saved", asyn
 	assert.equal(f.backdrop(), null);
 	assert.equal(f.aside().hasAttribute("inert"), true, "nothing in a closed drawer takes focus or is read out");
 	assert.equal(f.toggleButton().getAttribute("aria-hidden"), "false", "the menu button is there to open it");
-	assert.deepEqual(f.queries, ["(max-width: 767px)"], "the same 768px line the max-md: styles use");
+	assert.deepEqual(f.queries, ["(max-width: 767px)"], "the same 768px line the phone: styles use");
 });
 
 test("the menu button opens the drawer over the page with a backdrop, and saves nothing", async () => {
@@ -193,3 +211,56 @@ test("a browser without matchMedia behaves like a computer, and the listener is 
 	await teardown();
 	assert.equal(f.listening, 0);
 });
+
+test("opening the drawer moves focus into it and makes the page behind it inert until it closes", async () => {
+	const f = await fixture({ phone: true });
+	assert.equal(f.page().hasAttribute("inert"), false);
+	await f.press(f.toggleButton());
+	assert.equal(f.doc.activeElement === f.aside(), true, "a keyboard or a screen reader starts in the drawer"); // booleans: a failing assert must not try to print a whole DOM
+	assert.equal(f.aside().getAttribute("aria-label"), "Sidebar");
+	assert.equal(f.page().hasAttribute("inert"), true, "the dimmed page cannot be used through the drawer");
+	await f.press(f.backdrop()!);
+	assert.equal(f.page().hasAttribute("inert"), false, "closed: the page is live again");
+});
+
+test("on a computer the page is never made inert and the sidebar takes no focus", async () => {
+	const f = await fixture({ stored: "1" });
+	assert.equal(f.page().hasAttribute("inert"), false);
+	assert.equal(f.aside().hasAttribute("tabindex"), false);
+	await f.press(f.toggleButton());
+	await f.press(f.toggleButton());
+	assert.equal(f.page().hasAttribute("inert"), false);
+	assert.equal(f.doc.activeElement === f.aside(), false);
+});
+
+test("Escape closes the open drawer, except while a field inside is using the key", async () => {
+	const f = await fixture({ phone: true });
+	await f.key(f.sessions(), "Escape");
+	assert.equal(f.isOpen(), false, "closed already: nothing to do");
+	await f.press(f.toggleButton());
+	await f.key(f.field(), "Escape");
+	assert.equal(f.isOpen(), true, "Escape in the rename or search field belongs to the field");
+	await f.key(f.sessions(), "Tab");
+	assert.equal(f.isOpen(), true, "other keys do nothing");
+	await f.key(f.sessions(), "Escape");
+	assert.equal(f.isOpen(), false);
+});
+
+test("on a computer Escape in the sidebar does not close it", async () => {
+	const f = await fixture({ stored: "1" });
+	await f.key(f.sessions(), "Escape");
+	assert.equal(f.isOpen(), true);
+});
+
+test("the phone: variant skips the desktop app, and no component uses max-md: directly", () => {
+	const css = readFileSync("app/globals.css", "utf8");
+	assert.match(css, /@custom-variant phone \{\s*@media \(max-width: 767px\) \{\s*&:where\(:not\(\.lh-electron \*\)\) \{\s*@slot;/, "768px line, everywhere except html.lh-electron");
+	const direct: string[] = [];
+	for (const dir of ["components", "app"]) {
+		for (const file of readdirSync(dir, { recursive: true }) as string[]) {
+			if (/\.(tsx|ts|css)$/.test(file) && readFileSync(`${dir}/${file}`, "utf8").includes("max-md:")) direct.push(`${dir}/${file}`);
+		}
+	}
+	assert.deepEqual(direct, [], "a bare max-md: would also turn the desktop app's narrow window into a phone");
+});
+
