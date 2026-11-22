@@ -36,7 +36,7 @@ On a real phone you need the HTTPS address, so this waits for the hosting story 
 
 ## Checked
 
-See the story's pull request for the exact runs. In short: the new tests, 42 checks against a real production server (the manifest and icons without a cookie, everything else still refused, the sign-in page's links and policy, the app's tags), and phone-sized touch emulation in Chromium (taps, a swipe, measurements of the header, the buttons and the page width, screenshots in [screens/](screens/)).
+See the story's pull request for the exact runs. In short: the new tests, 42 checks against a real production server (the manifest and icons without a cookie, everything else still refused, the sign-in page's links and policy, the app's tags), and phone-sized touch emulation in Chromium (taps, a swipe, measurements of the header, the buttons and the page width, screenshots in [screens/](screens/)). After the independent review, 22 more browser checks: the menu button and the folder filter are both free to tap on the graph page, the drawer takes focus and makes the page behind it inert, Tab stays inside it, Escape closes it, the wordmark, New Practice and New Teaching close it from the page you are already on, and a desktop-app user agent at 390px keeps the computer layout.
 
 Not checked: a real iPhone or Android phone. That means the notch and home-indicator padding, "Add to Home Screen", how the icons render, the status bar, and whether Android offers to install.
 
