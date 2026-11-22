@@ -7,6 +7,9 @@
  *        on 127.0.0.1 with the BYOK auth file and the LH_DATA_DIR seam.
  *   NOT: a host for any app logic. Everything — teacher turns, extraction,
  *        the graph — runs in the Next server, unchanged.
+ *   With a server address saved in Settings → General → Server (mobile epic,
+ *   story 7) it spawns nothing: the window opens that address, with no desktop
+ *   secret and without the features that assume a server on this computer.
  *
  * Pattern (fact-checked 2026-09-17 against current Electron 44 / Next 16
  * docs — see .memory release-strategy + electron-wrapper notes):
@@ -31,6 +34,7 @@ const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { readServerSetting, writeServerSetting, normalizeServerAddress, modeArgument, switchPrompt, unreachablePrompt } = require("./server-setting.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -156,6 +160,12 @@ let subscriptionChild = null;
 let desktopAPISecret = null;
 let reopenWindow = null;
 const trustedAppWindows = new Set();
+// Where this launch gets its server (Settings → General → Server, electron/server-setting.cjs):
+// "local" = the app's own child server (the default), "remote" = a server address
+// (no child, no desktop secret), "dev" = LH_DEV_URL. Set once in main(), before any window.
+let serverMode = "local";
+let remoteOrigin = null;
+let switchPending = false;
 
 // A GUI shell must never die to a stray exception (EPIPE dialogs, a race
 // in an event handler): the window + child server are the product, and
@@ -347,7 +357,7 @@ function createWindow(url, beforeLoad) {
 			contextIsolation: true,
 			sandbox: true,
 			nodeIntegration: false,
-			...(process.env.LH_DEV_URL ? { additionalArguments: ["--lh-web-subscriptions"] } : {}),
+			additionalArguments: process.env.LH_DEV_URL ? ["--lh-web-subscriptions"] : [modeArgument(serverMode)],
 			preload: path.join(__dirname, "preload.cjs"),
 		},
 		// Live-resize + first-paint flash (owner, 2026-09-17): during a resize
@@ -424,6 +434,86 @@ function createWindow(url, beforeLoad) {
 
 	win.once("ready-to-show", () => win.show());
 	return win;
+}
+
+/* ── Server choice (Settings → General → Server, docs/mobile/desktop-server.md) ──
+ * Saving the choice restarts the app: the window, the preload bridge and the
+ * child server all depend on it. Switching copies nothing. */
+/** Saved before anything restarts, so a failure (a data folder that cannot be written) is told to the person
+ *  instead of leaving the app half-way. { ok: true } or { ok: false, error }. */
+function saveServerChoice(next) {
+	try {
+		writeServerSetting(app.getPath("userData"), next);
+		log(`server choice saved: ${next ?? "this computer"}`);
+		return { ok: true };
+	} catch (error) {
+		log(`server setting not saved: ${error?.message ?? error}`);
+		return { ok: false, error: `The server choice could not be saved in ${app.getPath("userData")}. Check that this folder can be written.` };
+	}
+}
+
+function restartApp() {
+	app.relaunch();
+	app.quit();
+}
+
+/** Save and restart. False, after telling the person, when it could not be saved. */
+function relaunchWithServer(next) {
+	const saved = saveServerChoice(next);
+	if (!saved.ok) {
+		dialog.showErrorBox(PRODUCT_NAME, saved.error);
+		return false;
+	}
+	restartApp();
+	return true;
+}
+
+/** The native confirmation, then save and restart. Resolves with what the
+ *  Settings row shows: { ok: true } (the app is restarting), a refusal, or a cancel. */
+async function askToSwitchServer(win, next) {
+	if (next === remoteOrigin) return { ok: false, error: next ? "The app already uses that server." : "The app already uses this computer." };
+	if (switchPending) return { ok: false, cancelled: true };
+	switchPending = true;
+	let restarting = false;
+	try {
+		const prompt = switchPrompt(next, PRODUCT_NAME);
+		const { response } = await dialog.showMessageBox(...(win && !win.isDestroyed() ? [win, prompt] : [prompt]));
+		if (response !== 0) return { ok: false, cancelled: true };
+		// Saved before the reply, so a failure shows in the row instead of "Restarting…" for good.
+		const saved = saveServerChoice(next);
+		if (!saved.ok) return saved;
+		restarting = true;
+	} finally {
+		// Once the choice is saved the app is going away: no second question in the meantime.
+		if (!restarting) switchPending = false;
+	}
+	// Reply first, restart on the next tick: the Settings row shows "Restarting…".
+	setImmediate(restartApp);
+	return { ok: true };
+}
+
+/** A server address that does not answer must not become an empty window.
+ *  Resolves true when it answers; false when the app is on its way out or back to this computer. */
+async function serverAnswers(url) {
+	const { waitForDevServer } = require("./dev-server-readiness.cjs");
+	for (;;) {
+		try {
+			// A proxy in front of a stopped app answers 502, 503 or 504: that is "down", not "up". Anything else
+			// (the sign-in page, the "no password yet" 403) opens, because the window can show what it says.
+			await waitForDevServer(url, { timeoutMs: 10000, ready: (status) => status < 500, label: "Server" });
+			return true;
+		} catch (error) {
+			log(`server not reachable: ${error?.message ?? error}${error?.cause ? ` (${error.cause.message ?? error.cause})` : ""}`);
+			const { response } = await dialog.showMessageBox(unreachablePrompt(url, PRODUCT_NAME));
+			if (response === 0) continue;
+			if (response === 1) {
+				if (relaunchWithServer(null)) return false;
+				continue; // it could not be saved (and said so): ask again rather than leave an app with no window
+			}
+			app.quit();
+			return false;
+		}
+	}
 }
 
 /* ── Zoom (owner round 7, 2026-10-05): ⌘±/⌘0 as an OWNED ladder ──────────
@@ -622,6 +712,8 @@ function installMenu() {
 				{ role: "about" },
 				// Manual checks report their result in Settings → General.
 				{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() },
+				// The way back when the server is down and Settings cannot load.
+				...(serverMode === "remote" ? [{ label: "Use This Computer Instead of the Server…", click: () => void askToSwitchServer(BrowserWindow.getAllWindows()[0], null).then((result) => { if (result.error) dialog.showErrorBox(PRODUCT_NAME, result.error); }) }] : []),
 				{ type: "separator" },
 				{ role: "hide" },
 				{ role: "hideOthers" },
@@ -691,37 +783,50 @@ async function main() {
 	// spawn, no packaging, full HMR. The rest of this shell still applies
 	// (guards, menu, single instance).
 	const devUrl = process.env.LH_DEV_URL;
-	const url = devUrl ?? `http://127.0.0.1:${await freePort()}`;
+	// Settings → Server: a saved address means this app starts no server of its own.
+	const saved = devUrl ? { origin: null, ignored: null } : readServerSetting(app.getPath("userData"));
+	if (saved.ignored) log(`server setting ignored: ${saved.ignored}`);
+	remoteOrigin = saved.origin;
+	serverMode = devUrl ? "dev" : remoteOrigin ? "remote" : "local";
+	const url = devUrl ?? remoteOrigin ?? `http://127.0.0.1:${await freePort()}`;
 	if (!devUrl) {
-		desktopAPISecret = randomBytes(32).toString("hex");
+		// Remote: no secret at all, so the hook below only strips the header
+		// (a page cannot set it) and never adds it to a request.
+		desktopAPISecret = remoteOrigin ? null : randomBytes(32).toString("hex");
 		const ownedOrigin = new URL(url).origin;
 		// All URLs, not only /api: remove the header again on external redirects.
 		session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["<all_urls>"] }, (details, callback) => {
 			callback({ requestHeaders: desktopAPIHeaders(details, ownedOrigin, desktopAPISecret, [...trustedAppWindows]) });
 		});
-		chatgpt = createChatGPT({
-			store: fileStore(path.join(app.getPath("userData"), "chatgpt-credentials.json")),
-			openExternal: (target) => shell.openExternal(target),
-			onChange: (value) => {
-				chatgptChild?.send(value);
-				for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:chatgpt:changed");
-			},
-		});
-		subscriptions = createSubscriptions({
-			directory: app.getPath("userData"),
-			loadSDK: () => loadSubscriptionSDK(path.dirname(serverEntry())),
-			openExternal: (target) => shell.openExternal(target),
-			onChange: (snapshot) => {
-				subscriptionChild?.send(snapshot);
-				for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:subscriptions:changed");
-			},
-		});
-		await subscriptions.ready;
-		log(`starting server: ${serverEntry()}`);
-		log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);
-		await startServer(new URL(url).port);
-		await waitUntilUp(url);
-		log(`server up: ${url}`);
+		if (remoteOrigin) {
+			// No child server, no ChatGPT or subscription bridge (preload leaves them out too).
+			log(`using the server at ${url}`);
+			if (!(await serverAnswers(url))) return;
+		} else {
+			chatgpt = createChatGPT({
+				store: fileStore(path.join(app.getPath("userData"), "chatgpt-credentials.json")),
+				openExternal: (target) => shell.openExternal(target),
+				onChange: (value) => {
+					chatgptChild?.send(value);
+					for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:chatgpt:changed");
+				},
+			});
+			subscriptions = createSubscriptions({
+				directory: app.getPath("userData"),
+				loadSDK: () => loadSubscriptionSDK(path.dirname(serverEntry())),
+				openExternal: (target) => shell.openExternal(target),
+				onChange: (snapshot) => {
+					subscriptionChild?.send(snapshot);
+					for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:subscriptions:changed");
+				},
+			});
+			await subscriptions.ready;
+			log(`starting server: ${serverEntry()}`);
+			log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);
+			await startServer(new URL(url).port);
+			await waitUntilUp(url);
+			log(`server up: ${url}`);
+		}
 	} else {
 		log(`dev mode: ${devUrl} — waiting for server`);
 		const { waitForDevServer } = require("./dev-server-readiness.cjs");
@@ -767,9 +872,31 @@ async function main() {
 		await openWebSubscriptionBrowser(action, new URL(url).origin, { openExternal: (target) => shell.openExternal(target) });
 	});
 
-	ipcMain.handle("lh:attachment:pick", (event, mode) => pickAttachmentPath(event, mode, {
-		BrowserWindow, dialog, trustedAppWindows, origin: new URL(url).origin,
-	}));
+	// A folder on this computer means nothing to a server: with one, nothing answers this channel
+	// (the preload leaves the picker out as well) and Attach uploads the file instead.
+	if (serverMode !== "remote") {
+		ipcMain.handle("lh:attachment:pick", (event, mode) => pickAttachmentPath(event, mode, {
+			BrowserWindow, dialog, trustedAppWindows, origin: new URL(url).origin,
+		}));
+	}
+
+	// Settings → General → Server. Same sender rule as the other desktop channels.
+	const fromAppWindow = (event) => trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) && trustedSender(event, new URL(url).origin, BrowserWindow);
+	ipcMain.handle("lh:server:get", (event) => {
+		if (!fromAppWindow(event)) throw new Error("Untrusted desktop request.");
+		return { mode: serverMode, address: remoteOrigin };
+	});
+	ipcMain.handle("lh:server:set", async (event, address) => {
+		if (!fromAppWindow(event)) throw new Error("Untrusted desktop request.");
+		if (devUrl) return { ok: false, error: "The development shell always uses its own server." };
+		let next = null;
+		if (address !== null) {
+			const typed = normalizeServerAddress(address);
+			if (!typed.ok) return { ok: false, error: typed.error };
+			next = typed.origin;
+		}
+		return askToSwitchServer(BrowserWindow.fromWebContents(event.sender), next);
+	});
 
 	installMenu();
 

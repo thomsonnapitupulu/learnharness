@@ -367,7 +367,7 @@ export function AppearanceSection({
 						Reset all
 					</button>
 				</div>
-				<div className="grid grid-cols-2 gap-x-10 gap-y-2">
+				<div className="grid grid-cols-2 gap-x-10 gap-y-2 phone:grid-cols-1">
 					{THEME_COLOR_KEYS.map((key) => (
 						<ColorOverrideRow
 							key={key}

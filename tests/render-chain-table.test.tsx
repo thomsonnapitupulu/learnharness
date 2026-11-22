@@ -251,6 +251,18 @@ describe("ChainTableBody — THE shared TopBar + the lines law (owner, round 2)"
 		assert.ok(html.includes('data-testid="chain-table-search"'), "the search input");
 	});
 
+	it("on a phone the bar fits: the counts give way, the search takes what is left, and the close button keeps its place (story 6)", () => {
+		const html = renderToStaticMarkup(React.createElement(ChainTableBody, { ...BASE, onOrganizationChange: (async () => undefined) as never }));
+		const classOf = (marker: string) => (html.match(new RegExp(`${marker}[^>]*class="([^"]*)"|class="([^"]*)"[^>]*${marker}`))?.slice(1).find(Boolean) ?? "").split(/\s+/);
+		const counts = (html.match(/<span class="([^"]*)">\d+ chains? · \d+ nodes?/)?.[1] ?? "").split(/\s+/);
+		assert.ok(counts.includes("phone:hidden"), "the counts make room (below 390px nothing else would fit)");
+		const wrapper = (html.match(/<div class="([^"]*)"><svg[^>]*lucide-search/)?.[1] ?? "").split(/\s+/);
+		for (const c of ["shrink-0", "phone:min-w-0", "phone:flex-1", "phone:shrink"]) assert.ok(wrapper.includes(c), `the search wrapper: ${c}`);
+		const input = classOf('data-testid="chain-table-search"');
+		assert.ok(input.includes("w-56") && input.includes("phone:w-full"), "224px on a computer, as wide as the wrapper on a phone");
+		for (const id of ["chain-table-close", "add-source-folder"]) assert.ok(classOf(`data-testid="${id}"`).includes("touch-target"), `${id} has a 44px touch area`);
+	});
+
 	it("the table is FRAMED: header rule + rules between groups + rule under the last group; rows stay lineless (owner round 5)", () => {
 		const html = render({ expandedClusters: new Set(["chat1"]) });
 		// every group wrapper carries the rule now — between groups AND under

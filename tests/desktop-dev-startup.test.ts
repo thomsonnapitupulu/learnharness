@@ -13,7 +13,7 @@ import { runInNewContext } from "node:vm";
 
 const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url));
 const mainSource = readFileSync(mainFile, "utf8"), mainRequire = createRequire(mainFile);
-type Options = { signal?: AbortSignal; timeoutMs?: number; retryMs?: number };
+type Options = { signal?: AbortSignal; timeoutMs?: number; retryMs?: number; ready?: (statusCode: number) => boolean; label?: string };
 const waitForDevServer = (url: string, options?: Options): Promise<void> => mainRequire("./dev-server-readiness.cjs").waitForDevServer(url, options);
 const short = { timeoutMs: 200, retryMs: 10 };
 async function endpoint(reply: http.RequestListener, test: (url: string, idle: () => Promise<void>) => Promise<void>) {
@@ -101,6 +101,64 @@ describe("development server readiness", () => {
 		const controller = new AbortController(); controller.abort(new Error("already quit")); let requests = 0;
 		await endpoint(() => { requests++; }, async url => {
 			await assert.rejects(waitForDevServer(url, { signal: controller.signal }), /already quit/); await delay(40); assert.equal(requests, 0);
+		});
+	});
+});
+
+// The desktop app's "Server" setting probes a hosted server the same way, but a 502/503/504 from the proxy in front of
+// a stopped app is "down", not "up" (`ready` says which answers count; docs/mobile/desktop-server.md).
+describe("server readiness with a `ready` rule", () => {
+	const serverRule = (status: number) => status < 500;
+	it("keeps trying while the answer is one it refuses, and stops at the first one it accepts", async () => {
+		const answers = [502, 503, 504, 200]; let requests = 0;
+		await endpoint((_req, res) => { requests++; res.writeHead(answers.shift() ?? 200); res.end("answer"); }, async (url, idle) => {
+			await waitForDevServer(url, { timeoutMs: 2000, retryMs: 10, ready: serverRule, label: "Server" });
+			await idle(); await delay(40); assert.equal(requests, 4, "three refused answers, one accepted, nothing after");
+		});
+	});
+	it("counts the answers a sign-in page and an unset password give (200, 302, 403, 404) as up", async () => {
+		for (const status of [200, 302, 403, 404]) {
+			let requests = 0;
+			await endpoint((_req, res) => { requests++; res.writeHead(status, status === 302 ? { location: "/login" } : {}); res.end(); }, async (url, idle) => {
+				await waitForDevServer(url, { ...short, ready: serverRule }); await idle(); assert.equal(requests, 1, `status ${status}`);
+			});
+		}
+	});
+	it("gives up on an answer it keeps refusing at the total deadline, naming the server, the answer and every connection closed", async () => {
+		let requests = 0;
+		await endpoint((_req, res) => { requests++; res.writeHead(502); res.end("Bad Gateway"); }, async (url, idle) => {
+			const start = Date.now();
+			await assert.rejects(waitForDevServer(url, { ...short, ready: serverRule, label: "Server" }), (error: Error) => {
+				assert.ok(error.message.startsWith(`Server ${url} did not respond within 200ms`), error.message);
+				assert.match(String(error.cause), /answered 502/);
+				return true;
+			});
+			assert.ok(Date.now() - start < 2000); await idle(); assert.ok(requests > 1, "a refused answer is tried again");
+			const seen = requests; await delay(60); assert.equal(requests, seen, "and nothing is tried after the deadline");
+		});
+	});
+	it("closes the connection of a refused answer even when that answer never finishes", async () => {
+		let requests = 0;
+		await endpoint((_req, res) => { requests++; res.writeHead(503); res.write("starting up"); }, async (url, idle) => {
+			await assert.rejects(waitForDevServer(url, { ...short, ready: serverRule }), /did not respond within 200ms/);
+			await idle(); assert.ok(requests > 1, "it tried again without waiting for the end of the answer");
+		});
+	});
+	it("treats an answer as ready when no rule is given (a development error page must stay visible), and says 'Development server'", async () => {
+		await endpoint((_req, res) => { res.writeHead(502); res.end("Next error page"); }, async (url, idle) => {
+			await waitForDevServer(url, short); await idle();
+		});
+		await endpoint(() => {}, async url => {
+			await assert.rejects(waitForDevServer(url, short), /^Error: Development server /);
+		});
+	});
+	it("is cancelled between two refused answers like any other probe", async () => {
+		const controller = new AbortController(); let requests = 0, seen!: () => void;
+		const first = new Promise<void>(resolve => { seen = resolve; });
+		await endpoint((_req, res) => { requests++; res.writeHead(503); res.end(); seen(); }, async (url, idle) => {
+			const waiting = waitForDevServer(url, { signal: controller.signal, timeoutMs: 2000, retryMs: 200, ready: serverRule });
+			await first; await delay(30); controller.abort(new Error("quit between answers"));
+			await assert.rejects(waiting, /quit between answers/); await idle(); await delay(250); assert.equal(requests, 1);
 		});
 	});
 });

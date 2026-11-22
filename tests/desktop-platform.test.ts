@@ -183,7 +183,8 @@ describe("desktop window chrome", () => {
 	});
 
 	it("only the external dev shell receives the web subscription transport marker", () => {
-		assert.equal(windowOptions("darwin").webPreferences.additionalArguments, undefined);
+		// A normal window carries only the server marker (mobile epic, story 7), never the web transport one.
+		assert.deepEqual(windowOptions("darwin").webPreferences.additionalArguments, ["--lh-server=local"]);
 		assert.deepEqual(windowOptions("darwin", { LH_DEV_URL: "http://localhost:3000" }).webPreferences.additionalArguments, ["--lh-web-subscriptions"]);
 	});
 
