@@ -39,3 +39,20 @@ The login page, scrypt password hash, signed 30-day session cookie (ending after
 - Tests for the gate, cookie tampering and expiry, limits and lockout, unlock links, the CLI, and that desktop mode is unaffected.
 - README: a "Hosting on a server" section linking [aws-hosting.md](aws-hosting.md).
 - Not carried over from the paused patch: `electron/phone-access.cjs`, the `main.cjs` and `preload.cjs` changes, and the desktop Settings section.
+
+## As built (story 1)
+
+Built on the epic branch as the first story. Where the build differs from the design above:
+
+- **`access.json` sits beside `auth.json`, not inside the data folder.** The agent's file tools may read the data folder, but they refuse the credential files beside `auth.json`, so the password hash and the session key live there and `fs-shared.ts` refuses `access.json` too. On the server: `/srv/lh/access.json`, next to `/srv/lh/auth.json`.
+- **The command is `npm run access`, a TypeScript script run with `tsx`** (`scripts/access.ts`), like the repo's other scripts. `set-password` generates a password, or takes one line on standard input with `--stdin`.
+- **Settings → General** has "Sign out" and "Sign out of all devices". "Change password" in Settings is not built yet: the server command covers it, and every change signs all devices out.
+- **A new `/api/access` route** tells Settings whether the sign-in is on, and ends all sessions.
+- **The proxy now covers every page and API request** except the build's static files and the streamed document route, which runs the same checks in its own handler. Pages and APIs in the desktop app are unchanged: with the desktop capability there is no sign-in.
+- **On this machine** (a loopback Host from a loopback visitor) with no password set, the app answers as before, which keeps `npm run dev` and `npm start` working untouched. A request that came through a proxy, or addressed by a LAN IP, is refused until a password exists.
+- **Network assumption.** "This machine" is read from the Host and `X-Forwarded-For` headers, because Next does not show the proxy the socket's address. Caddy sets `X-Forwarded-For` to the visitor's address, so nothing that came through Caddy passes for local. A client that reached Next directly could send its own headers and pass for local: with a password set it still needs a session, but with none it would be let in. So Next must listen on loopback only (`npm start` is `next start -H localhost`), and only Caddy's ports (80 and 443) may be open to the internet. The AWS setup (story 8) does both.
+- **Locked sign-in** shows how to unlock on the server. The email unlock link is the next story.
+- **The attempt is counted when it starts.** The password check takes a moment, so a burst of tries sent at once is counted before any of them is checked, and only five get through the per-address backoff.
+- **Signing out everywhere also ends open event streams.** The live `/api/events` stream of a signed-out phone would otherwise go on delivering what the app is doing until the page closed; its heartbeat (every 25 seconds) now checks that the session key is unchanged and closes the stream when it is not. An already-open page is not sent to the sign-in page by this; its next request is.
+- **Not in the desktop app.** `access.json` is excluded from the standalone build next to `auth.json`, and `scripts/build-server.mjs` refuses to package one (a `set-password` run without `LH_AUTH_FILE` would otherwise leave one in the repository folder for the build to sweep up).
+- **The lock is global.** 20 wrong passwords from any mix of addresses lock sign-in for everyone, which also lets a stranger lock the owner out (never in). Cookies already issued keep working. The unlock link (story 2) is the remedy; whether to keep the global lock at all is an open question for the owner.

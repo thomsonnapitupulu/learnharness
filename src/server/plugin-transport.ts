@@ -1,4 +1,5 @@
 import { isPluginHostError } from "./plugin-host.ts";
+import { accessGate } from "./access-gate.ts";
 import { apiRequestRefusal } from "./desktop-access.ts";
 import type { PluginFrontendContext, PluginInfo } from "../core/plugins.ts";
 
@@ -65,7 +66,7 @@ export function createPluginTransport(deps: { getHost(): Promise<PluginTransport
 export function createPluginDocumentRoute(transport: Pick<ReturnType<typeof createPluginTransport>, "convertDocument">) {
 	const refusal = (request: Request) => {
 		const error = apiRequestRefusal(request);
-		return error ? json({ error }, 403) : undefined;
+		return error ? json({ error }, 403) : accessGate(request).refusal;
 	};
 	const unsupported = (request: Request) => refusal(request) ?? new Response(null, { status: 405 });
 	return {

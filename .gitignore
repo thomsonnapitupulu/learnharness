@@ -23,6 +23,8 @@ dist/
 
 # dev auth/keys store (auth-keys wave): repo-root auth.json — secrets never committed
 auth.json
+# hosted sign-in store (password hash + session key), same rule as auth.json
+access.json
 chatgpt-credentials.json*
 github-copilot-credentials.json*
 xai-credentials.json*
