@@ -34,9 +34,9 @@ import {
 } from "./access-session.ts";
 import { browserHostAllowed, browserOnlyMode, requestProtocol } from "./desktop-access.ts";
 
-/** Reachable without a session. The sign-in and sign-out pages are
+/** Reachable without a session. The sign-in, sign-out and unlock pages are
  * self-contained, so nothing of the app loads before sign-in. */
-export const PUBLIC_PATHS: readonly string[] = ["/login", "/logout"];
+export const PUBLIC_PATHS: readonly string[] = ["/login", "/logout", "/unlock"];
 
 export interface GateOptions {
 	env?: Record<string, string | undefined>;

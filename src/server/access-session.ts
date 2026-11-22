@@ -14,7 +14,7 @@
  *    only the login route uses it.
  */
 
-import { createHmac, randomBytes, randomInt, scrypt as nodeScrypt, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, scrypt as nodeScrypt, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { ACCESS_FILE } from "../../config.ts";
@@ -36,6 +36,11 @@ const PER_CLIENT_FREE_TRIES = 5;
 const PER_CLIENT_MAX_WAIT_MS = 15 * MINUTE;
 export const LOCK_FAILURES = 20;
 const LOCK_WINDOW_MS = 60 * MINUTE;
+/** An emailed unlock link works once, for this long. */
+export const UNLOCK_LINK_MS = 15 * MINUTE;
+/** At most one unlock email per MAIL_GAP_MS. (No daily cap: a stranger could
+ * use it up and leave the owner without a link for a day.) */
+export const MAIL_GAP_MS = 15 * MINUTE;
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 };
 
 // ── stored state ──────────────────────────────────────────────────────
@@ -50,10 +55,14 @@ export interface AccessState {
 	/** The newest LOCK_FAILURES wrong passwords. */
 	failures: { at: number; client: string }[];
 	lastSignIn: { at: number; client: string } | null;
+	/** The pending unlock link: the sha256 of its token, never the token. */
+	unlock: { hash: string; expiresAt: number } | null;
+	/** When the last unlock email went out, for the gap. */
+	mailedAt: number | null;
 }
 
 function emptyState(): AccessState {
-	return { version: 1, password: null, sessionKey: randomBytes(32).toString("hex"), locked: false, lockedAt: null, failures: [], lastSignIn: null };
+	return { version: 1, password: null, sessionKey: randomBytes(32).toString("hex"), locked: false, lockedAt: null, failures: [], lastSignIn: null, unlock: null, mailedAt: null };
 }
 
 function normalize(raw: unknown): AccessState {
@@ -72,6 +81,9 @@ function normalize(raw: unknown): AccessState {
 	}
 	const last = record.lastSignIn as { at?: unknown; client?: unknown } | null | undefined;
 	if (last && typeof last.at === "number" && typeof last.client === "string") state.lastSignIn = { at: last.at, client: last.client };
+	const unlock = record.unlock as { hash?: unknown; expiresAt?: unknown } | null | undefined;
+	if (unlock && typeof unlock.hash === "string" && typeof unlock.expiresAt === "number") state.unlock = { hash: unlock.hash, expiresAt: unlock.expiresAt };
+	if (typeof record.mailedAt === "number") state.mailedAt = record.mailedAt;
 	return state;
 }
 
@@ -130,7 +142,7 @@ export async function setPassword(password: string, file: string = ACCESS_FILE):
 	if (password.length < MIN_PASSWORD) throw new Error(`Use at least ${MIN_PASSWORD} characters.`);
 	if (password.length > 1024) throw new Error("That password is too long.");
 	const state = readAccessState(file);
-	writeAccessState({ ...state, password: await hashPassword(password), sessionKey: randomBytes(32).toString("hex"), locked: false, lockedAt: null, failures: [] }, file);
+	writeAccessState({ ...state, password: await hashPassword(password), sessionKey: randomBytes(32).toString("hex"), locked: false, lockedAt: null, failures: [], unlock: null }, file);
 }
 
 /** Every cookie ever issued stops working. */
@@ -138,8 +150,52 @@ export function signOutEverywhere(file: string = ACCESS_FILE): void {
 	writeAccessState({ ...readAccessState(file), sessionKey: randomBytes(32).toString("hex") }, file);
 }
 
+/** Clears the lock, the wrong-password count and any pending unlock link. */
 export function unlockSignIn(file: string = ACCESS_FILE): void {
-	writeAccessState({ ...readAccessState(file), locked: false, lockedAt: null, failures: [] }, file);
+	writeAccessState({ ...readAccessState(file), locked: false, lockedAt: null, failures: [], unlock: null }, file);
+}
+
+// ── unlock links ──────────────────────────────────────────────────────
+
+function hashToken(token: string): Buffer {
+	return createHash("sha256").update(token).digest();
+}
+
+/** A token for a new unlock link. Only its hash is stored, and a newer link
+ * replaces an older one. */
+export function issueUnlockToken(now: number, file: string = ACCESS_FILE): string {
+	const token = randomBytes(32).toString("base64url");
+	writeAccessState({ ...readAccessState(file), unlock: { hash: hashToken(token).toString("hex"), expiresAt: now + UNLOCK_LINK_MS } }, file);
+	return token;
+}
+
+/** Whether this token is the pending, unexpired one. Spends nothing. */
+export function unlockTokenValid(token: unknown, now: number, file: string = ACCESS_FILE): boolean {
+	const pending = readAccessState(file).unlock;
+	if (!pending || typeof token !== "string" || token.length === 0 || token.length > 256 || now >= pending.expiresAt) return false;
+	const wanted = Buffer.from(pending.hash, "hex");
+	const supplied = hashToken(token);
+	return supplied.length === wanted.length && timingSafeEqual(supplied, wanted);
+}
+
+/** Spends the link: when its token is genuine and unexpired, sign-in unlocks
+ * and the link stops working. */
+export function redeemUnlockToken(token: unknown, now: number, file: string = ACCESS_FILE): boolean {
+	if (!unlockTokenValid(token, now, file)) return false;
+	unlockSignIn(file);
+	return true;
+}
+
+/** How long until another unlock email may go out: 0 when one may go now. */
+export function mailWaitMs(now: number, file: string = ACCESS_FILE): number {
+	const last = readAccessState(file).mailedAt;
+	return last === null ? 0 : Math.max(0, last + MAIL_GAP_MS - now);
+}
+
+/** Counts an unlock email, whether or not the send then works, so a broken
+ * mail setup cannot be retried in a loop. */
+export function recordMail(now: number, file: string = ACCESS_FILE): void {
+	writeAccessState({ ...readAccessState(file), mailedAt: now }, file);
 }
 
 // ── sessions ──────────────────────────────────────────────────────────

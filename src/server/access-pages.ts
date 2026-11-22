@@ -30,9 +30,10 @@ p.err{color:var(--err)}
 form{display:grid;gap:.75rem}
 input,button{width:100%;height:3rem;font:inherit;border-radius:.6rem}
 input{padding:0 .9rem;color:inherit;background:var(--card);border:1px solid var(--line)}
-button{font-weight:600;color:var(--bg);background:var(--fg);border:0;cursor:pointer}
+button,a.btn{font-weight:600;color:var(--bg);background:var(--fg);border:0;cursor:pointer}
+a.btn{display:grid;place-items:center;height:3rem;border-radius:.6rem;text-decoration:none}
 input::placeholder{color:var(--muted);opacity:1}
-input:focus-visible,button:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+input:focus-visible,button:focus-visible,a.btn:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
 .hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);opacity:0}
 `;
 
@@ -48,11 +49,15 @@ ${body}
 </main></body></html>`;
 }
 
-/** `locked` hides the form: nothing to type until the lock is cleared. */
-export function loginPage({ next = "/", message = "", locked = false }: { next?: string; message?: string; locked?: boolean } = {}): string {
-	return shell("Sign in", `<p>Sign in to continue.</p>
+/** `message` is a problem (red); `note` is plain information, such as what
+ * happened to the unlock email. `locked` hides the form: nothing to type until
+ * the lock is cleared. With an address set up (`canEmail`) it offers a button
+ * that emails an unlock link. */
+export function loginPage({ next = "/", message = "", note = "", locked = false, canEmail = false }: { next?: string; message?: string; note?: string; locked?: boolean; canEmail?: boolean } = {}): string {
+	return shell("Sign in", `${locked ? "" : "<p>Sign in to continue.</p>"}
 ${message ? `<p class="err" role="alert">${escapeHTML(message)}</p>` : ""}
-${locked ? "" : `<form method="post" action="/login">
+${note ? `<p role="status">${escapeHTML(note)}</p>` : ""}
+${locked ? (canEmail ? `<form method="post" action="/unlock"><button type="submit">Email me an unlock link</button></form>` : "") : `<form method="post" action="/login">
 <input type="hidden" name="next" value="${escapeHTML(next)}">
 <input class="hidden" type="text" name="username" value="owner" autocomplete="username" tabindex="-1" aria-hidden="true">
 <input type="password" name="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-label="Password" placeholder="Password" required autofocus>
@@ -63,6 +68,23 @@ ${locked ? "" : `<form method="post" action="/login">
 export function signedOutPage(message = ""): string {
 	return shell("Sign out", `${message ? `<p class="err" role="alert">${escapeHTML(message)}</p>` : "<p>Sign out of this device?</p>"}
 <form method="post" action="/logout"><button type="submit">Sign out</button></form>`);
+}
+
+/** The page an emailed link opens. It asks first: a mail scanner that previews
+ * the link must not unlock anything. */
+export function unlockPage(token: string): string {
+	return shell("Unlock", `<p>Sign-in is locked after too many wrong passwords. Unlock it?</p>
+<form method="post" action="/unlock"><input type="hidden" name="token" value="${escapeHTML(token)}"><button type="submit">Unlock</button></form>`);
+}
+
+export function unlockedPage(): string {
+	return shell("Unlocked", `<p>Sign-in is unlocked.</p>
+<a class="btn" href="/login">Go to sign in</a>`);
+}
+
+export function unlockFailedPage(message: string): string {
+	return shell("Unlock", `<p class="err" role="alert">${escapeHTML(message)}</p>
+<a class="btn" href="/login">Go to sign in</a>`);
 }
 
 export function notSetUpPage(): string {
