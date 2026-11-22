@@ -169,7 +169,7 @@ export function PluginQuestionDockContent({ viewReader, snapshot, chatId, draft,
 						}} className="field-sizing-content lh-input max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground/70" placeholder="Your thinking" />
 					</>}
 					<DockDictationNote className="px-2.5 pt-1" />
-					<div className="flex items-center justify-between gap-2 p-1">
+					<div className="flex items-center justify-between gap-2 p-1 phone:flex-wrap">
 						<EnterHint className="phone:hidden" />
 						{unavailable && <Button type="button" variant="ghost" disabled={!ready || submitting} onClick={() => { if (latch.current) return; latch.current = true; void finishDictation().then(dismiss).catch(() => {}).finally(() => { latch.current = false; }); }}>Dismiss question</Button>}
 						<DockMic />

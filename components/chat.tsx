@@ -1128,7 +1128,7 @@ export function Chat({
 	 * the move-on). Enter-on-empty and the Next chip both key on it. */
 	const onScreenKeys = useOnScreenKeyboard();
 	// On a phone the docks' footers carry the microphone (the stats row's strip is hidden there).
-	const dockDictation = useMemo(() => ({ dictation, disabled: pluginOwnsDock && !pluginMicAvailable }), [dictation, pluginOwnsDock, pluginMicAvailable]);
+	const dockDictation = { dictation, disabled: pluginOwnsDock && !pluginMicAvailable };
 	const { phone } = useSidebar();
 	const nextReady =
 		kind === "practice" &&

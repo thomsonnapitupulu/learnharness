@@ -291,11 +291,21 @@ function FloatingSideThread({ state, chatId, composer, ...handlers }: { state: S
  * placement, dragging and resizing, and the docked panel, make no sense at that width and are not
  * used there. A tap on the dimmed lesson closes it; the draft is kept like any close. */
 function SideThreadSheet({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+	const sheet = useRef<HTMLDivElement>(null);
+	const opener = useRef<Element | null>(null);
+	// A modal dialog: focus is somewhere inside it (the body focuses its field, as it always does; otherwise the sheet
+	// itself) and goes back to what had it when the sheet closes. Escape closes it from anywhere inside.
+	useLayoutEffect(() => { opener.current = document.activeElement; }, []); // before the body's own effect moves focus
+	useEffect(() => {
+		if (!sheet.current?.contains(document.activeElement)) sheet.current?.focus({ preventScroll: true });
+		return () => { const back = opener.current; if (back instanceof HTMLElement && back.isConnected) back.focus({ preventScroll: true }); };
+	}, []);
 	return (
-		<div data-testid="side-thread-sheet-frame" className="lh-no-drag fixed inset-x-0 z-60 flex flex-col justify-end" style={{ top: "var(--lh-vv-top, 0px)", height: "var(--lh-vvh, 100dvh)" }}>
+		<div data-testid="side-thread-sheet-frame" className="lh-no-drag fixed inset-x-0 z-60 flex flex-col justify-end" style={{ top: "var(--lh-vv-top, 0px)", height: "var(--lh-vvh, 100dvh)" }}
+			onKeyDown={(event) => { if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.stopPropagation(); onClose(); } }}>
 			<div aria-hidden="true" data-testid="side-thread-backdrop" className="absolute inset-0 bg-black/40" onClick={onClose} />
-			<div role="dialog" aria-label="Side question" data-testid="side-thread-sheet"
-				className="relative flex h-[70%] min-h-0 flex-col rounded-t-2xl border-t bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-sm shadow-2xl [html[data-lh-keyboard]_&]:pb-3">
+			<div ref={sheet} role="dialog" aria-modal="true" aria-label="Side question" tabIndex={-1} data-testid="side-thread-sheet"
+				className="relative flex h-[70%] min-h-0 flex-col rounded-t-2xl border-t bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-sm shadow-2xl outline-none [html[data-lh-keyboard]_&]:pb-3">
 				{children}
 			</div>
 		</div>
@@ -307,8 +317,8 @@ export function SideThreadPopover({ state, chatId, composer, ...handlers }: { st
 	if (!phone) return <FloatingSideThread state={state} chatId={chatId} composer={composer} {...handlers} />;
 	return <SideThreadSheet onClose={handlers.onClose}><SideThreadBody key={state.threadId} state={state} chatId={chatId} {...handlers} /></SideThreadSheet>;
 }
-export function SideThreadPanel({ children, onClose }: { children: ReactNode; onClose?: () => void }) {
+export function SideThreadPanel({ children, onClose }: { children: ReactNode; onClose: () => void }) {
 	const { phone } = useSidebar();
-	if (phone && onClose) return <SideThreadSheet onClose={onClose}>{children}</SideThreadSheet>;
+	if (phone) return <SideThreadSheet onClose={onClose}>{children}</SideThreadSheet>;
 	return <aside aria-label="Side question" data-testid="side-thread-panel" className="flex w-[22rem] shrink-0 flex-col border-l border-border bg-background p-3">{children}</aside>;
 }

@@ -238,9 +238,11 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			    (viewport-fit=cover) they keep the page clear of the notch, the
 			    rounded corners and the home indicator. With an on-screen keyboard
 			    up, lib/visual-viewport.ts sets --lh-vvh and --lh-vv-top, and the
-			    shell is the visible part of the screen: the keyboard covers the
-			    home indicator, so its padding goes too. */}
-			<div className={cn("relative top-[var(--lh-vv-top,0px)] flex h-[var(--lh-vvh,100dvh)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] [html[data-lh-keyboard]_&]:pb-0", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+			    shell is the visible part of the screen: fixed to the layout
+			    viewport, which --lh-vv-top is measured from, so it stays right
+			    however the page has scrolled. The keyboard covers the home
+			    indicator, so its padding goes too. */}
+			<div className={cn("relative top-[var(--lh-vv-top,0px)] flex h-[var(--lh-vvh,100dvh)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] [html[data-lh-keyboard]_&]:pb-0 [html[data-lh-keyboard]_&]:fixed [html[data-lh-keyboard]_&]:inset-x-0", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }

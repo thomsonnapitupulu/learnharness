@@ -7,11 +7,15 @@
  *
  * While a keyboard is up, two CSS variables on <html> say what is left:
  *   --lh-vvh      the visible height
- *   --lh-vv-top   how far the visible area has been panned down the page
+ *   --lh-vv-top   how far the visible area has been panned down the layout viewport
  * and `html[data-lh-keyboard]` is set. The app shell takes its height and its
  * top from them (components/sidebar.tsx), so everything in it, the dock's
  * height budget included, simply fits above the keyboard. With no keyboard the
  * variables are unset and the shell is 100dvh at the top, as it was.
+ *
+ * `--lh-vv-top` is visualViewport.offsetTop, which is measured from the layout
+ * viewport, so whatever uses it is `position: fixed` (the shell while a keyboard
+ * is up, the side-question sheet): that stays right however the page has scrolled.
  */
 
 /** Smaller differences are the browser's own bars, not a keyboard. */
@@ -30,8 +34,10 @@ export interface ViewportReading {
  * a smaller visual viewport, for another reason, so it counts as none. */
 export function visibleArea(reading: ViewportReading): { height: number; top: number } | null {
 	if (Math.abs(reading.scale - 1) > 0.01) return null;
-	const covered = reading.layoutHeight - reading.height - reading.offsetTop;
-	if (covered < KEYBOARD_MIN_PX) return null;
+	// The keyboard's size is how much shorter the visual viewport is than the layout viewport, wherever the page has
+	// been panned to (offsetTop): iOS pans just far enough to show the focused field, which can still leave the
+	// bottom of the page under the keyboard.
+	if (reading.layoutHeight - reading.height < KEYBOARD_MIN_PX) return null;
 	return { height: Math.round(reading.height), top: Math.round(reading.offsetTop) };
 }
 

@@ -39,9 +39,12 @@ describe("what a keyboard leaves of the screen", () => {
 		assert.deepEqual(visibleArea({ layoutHeight: 390, height: 190.4, offsetTop: 0, scale: 1 }), { height: 190, top: 0 }, "landscape, rounded");
 	});
 
-	it("iOS pans the page up to show the field: the covered part is what is below the visible area", () => {
-		assert.deepEqual(visibleArea({ layoutHeight: 844, height: 508, offsetTop: 120, scale: 1 }), { height: 508, top: 120 });
-		assert.equal(visibleArea({ layoutHeight: 844, height: 508, offsetTop: 336, scale: 1 }), null, "panned all the way down: nothing is covered");
+	it("iOS pans the page to show the field: the keyboard is as big as before, wherever the page has been panned to", () => {
+		// iOS and Chrome pan just far enough to show the focused field, which can leave the bottom of the page (the
+		// Submit row) under the keyboard, or flush with the top of it: both are a keyboard, and the area follows the pan.
+		for (const offsetTop of [0, 120, 200, 250, 336]) {
+			assert.deepEqual(visibleArea({ layoutHeight: 844, height: 508, offsetTop, scale: 1 }), { height: 508, top: offsetTop }, `panned ${offsetTop}px`);
+		}
 	});
 
 	it("a pinch-zoomed page has a smaller visual viewport for another reason: not a keyboard", () => {
@@ -164,12 +167,6 @@ describe("the variables the shell follows", () => {
 		assert.doesNotThrow(() => installVisualViewportVars({ ...old.win, matchMedia: undefined } as unknown as Window)());
 	});
 
-	it("the shell is the visible part of the screen, and gives up the home-indicator padding while the keyboard covers it", () => {
-		const shell = read("components/sidebar.tsx");
-		assert.match(shell, /relative top-\[var\(--lh-vv-top,0px\)\] flex h-\[var\(--lh-vvh,100dvh\)\] pb-\[env\(safe-area-inset-bottom\)\]/);
-		assert.match(shell, /\[html\[data-lh-keyboard\]_&\]:pb-0/);
-		assert.match(shell, /useEffect\(\(\) => installVisualViewportVars\(\), \[\]\);/);
-	});
 });
 
 // ---------------------------------------------------------------------------- a mounted provider
@@ -189,6 +186,10 @@ async function mountWindow(element: React.ReactElement, { phone, visualViewport 
 		requestAnimationFrame: (fn: () => void) => frames.push(fn),
 		cancelAnimationFrame() {},
 	});
+	// linkedom has no focus model: the last focus() call is the active element.
+	let active: unknown = null;
+	Object.defineProperty(doc, "activeElement", { configurable: true, get: () => active ?? doc.body });
+	(win.HTMLElement.prototype as { focus: unknown }).focus = function (this: unknown) { active = this; };
 	const localStorage = { getItem: () => null, setItem: () => {} };
 	const previous = new Map<string, PropertyDescriptor | undefined>();
 	// The provider renders "not a phone" first, so the floating window mounts for a moment before the sheet replaces it.
@@ -210,11 +211,20 @@ async function mountWindow(element: React.ReactElement, { phone, visualViewport 
 			else delete (globalThis as Record<string, unknown>)[name];
 		}
 	};
-	await act(async () => { root.render(<PathnameContext.Provider value="/chat/a"><SidebarProvider>{element}</SidebarProvider></PathnameContext.Provider>); });
-	return { doc, root, frames };
+	const render = (el: React.ReactElement) => act(async () => { root.render(<PathnameContext.Provider value="/chat/a"><SidebarProvider>{el}</SidebarProvider></PathnameContext.Provider>); });
+	await render(element);
+	return { doc, root, frames, render, win };
 }
 
 describe("the shell on a phone with a keyboard", () => {
+	it("the shell is the visible part of the screen: its height and top come from the variables, it is fixed to the layout viewport while a keyboard is up, and it gives up the home-indicator padding", async () => {
+		const { doc } = await mountWindow(<div data-testid="page" />, { phone: true });
+		const shell = doc.querySelector('[data-testid="page"]')!.closest('[class*="--lh-vvh"]')!;
+		const classes = shell.getAttribute("class")!.split(/\s+/);
+		for (const cls of ["relative", "top-[var(--lh-vv-top,0px)]", "h-[var(--lh-vvh,100dvh)]", "pb-[env(safe-area-inset-bottom)]",
+			"[html[data-lh-keyboard]_&]:pb-0", "[html[data-lh-keyboard]_&]:fixed", "[html[data-lh-keyboard]_&]:inset-x-0"]) assert.ok(classes.includes(cls), cls);
+	});
+
 	it("the provider installs the variables on the page's root element, and removes them when it goes", async () => {
 		const f = fakeWindow();
 		f.vv.height = 508;
@@ -253,7 +263,7 @@ describe("the side question on a phone is a bottom sheet", () => {
 		assert.equal(closed, 1, "a tap on the dimmed lesson closes it");
 	});
 
-	it("the docked panel is a sheet too on a phone; with no way to close it, or on a wide screen, it stays the docked panel", async () => {
+	it("the docked panel is a sheet too on a phone; on a wide screen it stays the docked panel", async () => {
 		const body = <SideThreadBody state={sideState("panel")} {...handlers} />;
 		let closed = 0;
 		const phone = await mountWindow(<SideThreadPanel onClose={() => { closed++; }}>{body}</SideThreadPanel>, { phone: true });
@@ -265,9 +275,29 @@ describe("the side question on a phone is a bottom sheet", () => {
 		const wide = await mountWindow(<SideThreadPanel onClose={() => {}}>{body}</SideThreadPanel>, { phone: false });
 		assert.ok(wide.doc.querySelector('[data-testid="side-thread-panel"]'), "wide: the docked panel");
 		assert.equal(wide.doc.querySelector('[data-testid="side-thread-sheet"]'), null);
-		await cleanup!(); cleanup = undefined;
-		const bare = await mountWindow(<SideThreadPanel>{body}</SideThreadPanel>, { phone: true });
-		assert.ok(bare.doc.querySelector('[data-testid="side-thread-panel"]'), "no onClose, as before");
+	});
+
+	it("the sheet is a modal dialog: it says so, focus is inside it, Escape closes it from anywhere in it (once), and focus goes back to what had it", async () => {
+		let closed = 0;
+		const sheet = (open: boolean) => <>
+			<button data-testid="opener" />
+			{open && <SideThreadPopover state={sideState("popover")} chatId="chat" composer={() => null} {...handlers} onClose={() => { closed++; }} />}
+		</>;
+		const w = await mountWindow(sheet(false), { phone: true });
+		const opener = w.doc.querySelector('[data-testid="opener"]') as HTMLElement;
+		opener.focus();
+		await w.render(sheet(true));
+		const dialog = w.doc.querySelector('[data-testid="side-thread-sheet"]') as HTMLElement;
+		assert.equal(dialog.getAttribute("aria-modal"), "true");
+		assert.equal(dialog.contains(w.doc.activeElement as Node), true, "focus is inside the sheet, not left on the lesson");
+		assert.equal(w.doc.activeElement === dialog.querySelector('[data-testid="side-thread-input"]'), true, "the body's own focus on its field is kept");
+		const escape = (target: Element) => act(async () => { const event = new w.win.Event("keydown", { bubbles: true, cancelable: true }); Object.assign(event, { key: "Escape", isComposing: false }); target.dispatchEvent(event); });
+		await escape(dialog.querySelector('button[aria-label="Close side conversation"]')!);
+		assert.equal(closed, 1, "Escape on the Close button closes it");
+		await escape(dialog.querySelector('[data-testid="side-thread-input"]')!);
+		assert.equal(closed, 2, "Escape in the field closes it once, not twice");
+		await w.render(sheet(false));
+		assert.equal(w.doc.activeElement === opener, true, "closed: focus is back where it was");
 	});
 
 	it("a computer renders the floating window, as before", () => {
@@ -337,13 +367,14 @@ describe("the answer docks on a phone", () => {
 		assert.match(source, /<EnterHint className="phone:hidden" \/>/);
 		assert.match(source, /<DockMic \/>\s*<Button type="submit" disabled=\{!canSubmit\} className="ml-auto h-9 rounded-\[6px\] px-3\.5 text-sm font-medium phone:h-12 phone:flex-1 phone:rounded-\[10px\] phone:text-base"/);
 		assert.match(source, /<DockDictationNote className="px-2\.5 pt-1" \/>/);
+		assert.match(source, /className="flex items-center justify-between gap-2 p-1 phone:flex-wrap">\s*<EnterHint/, "Dismiss, the mic and Submit wrap on a 320px screen instead of overflowing");
 	});
 
 	it("the session shares its dictation with every dock, and the side sheet closes with its own control", () => {
 		const chat = read("components/chat.tsx");
 		assert.match(chat, /<DockDictationContext\.Provider value=\{dockDictation\}>\s*<DockOverlay/);
 		assert.match(chat, /<\/DockOverlay>|\/>\s*<\/DockDictationContext\.Provider>/);
-		assert.match(chat, /const dockDictation = useMemo\(\(\) => \(\{ dictation, disabled: pluginOwnsDock && !pluginMicAvailable \}\), \[dictation, pluginOwnsDock, pluginMicAvailable\]\);/);
+		assert.match(chat, /const dockDictation = \{ dictation, disabled: pluginOwnsDock && !pluginMicAvailable \};/);
 		assert.match(chat, /<SideThreadPanel onClose=\{closeSideThread\}>/);
 	});
 });
