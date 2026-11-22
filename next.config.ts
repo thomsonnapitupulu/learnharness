@@ -53,6 +53,8 @@ const nextConfig: NextConfig = {
 		"*": [
 			"**/data/**/*",
 			"auth.json",
+			// The hosted server's sign-in (password hash, session key), beside auth.json.
+			"access.json*",
 			"chatgpt-credentials.json*",
 			"github-copilot-credentials.json*",
 			"xai-credentials.json*",

@@ -183,7 +183,7 @@ describe("desktop standalone payload", () => {
 	});
 
 	it("still refuses leaked developer data or keys", () => {
-		for (const leaked of ["data/chat.json", "auth.json", ".env", ".env.local"]) {
+		for (const leaked of ["data/chat.json", "auth.json", "access.json", "access.json.tmp-5b1c0f3e-0000-4000-8000-000000000000", ".env", ".env.local"]) {
 			withPayload(({ write, run }) => {
 				write(path.join(STANDALONE, leaked));
 				const result = run();
