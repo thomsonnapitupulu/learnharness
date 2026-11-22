@@ -6,7 +6,7 @@ This story goes over the pages that stories 4 and 5 did not touch, and does the 
 
 ## What the audit found
 
-Every page at 390 by 844, 360 by 640 and 320 by 568, with touch: the graph, a new teaching and a new practice session, a teaching session, a waiting quiz, a waiting practice problem, the Flashcards library, Settings (all eight sections; the first audit, on a development server with plugins built, also covered the four plugin pages), the delete dialogs and the graph's pop-ups. Two things to know about the method:
+Every page at 390 by 844, 360 by 640 and 320 by 568, with touch: the graph, a new teaching and a new practice session, a teaching session, a waiting quiz, a waiting practice problem, the Flashcards library, Settings (all eight sections; the first audit also covered the four plugin pages), the delete dialogs and the graph's pop-ups. Two things to know about the method:
 
 - A mobile browser **widens the layout viewport** when something does not fit (`window.innerWidth` becomes 392 on a 360px phone, and the page shows zoomed out). So "nothing scrolls sideways" has to be measured against the phone's real width, not against `innerWidth`; the audit's first pass measured against `innerWidth` and missed the chains table below.
 - Everything was fine except what is listed here. The Flashcards library's table is 651px wide and scrolls sideways inside its own box; the page does not move. The plugin editors (coding questions, drawing pad) need a model to open and were not audited.
