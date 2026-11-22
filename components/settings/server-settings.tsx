@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SettingsRow } from "./controls.tsx";
 
@@ -12,7 +12,7 @@ type ServerState = { mode: "local" | "remote"; address: string | null };
  * Only the desktop app has `window.lh.server`: everywhere else this renders nothing. */
 export function ServerSettings() {
 	const [state, setState] = useState<ServerState | null>(null);
-	const [typed, setTyped] = useState("");
+	const field = useRef<HTMLInputElement>(null);
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
 	useEffect(() => {
@@ -57,7 +57,7 @@ export function ServerSettings() {
 					Use this computer
 				</Button>
 			) : (
-				<form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void change(typed); }}>
+				<form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void change(field.current?.value ?? ""); }}>
 					<input
 						type="text"
 						inputMode="url"
@@ -67,9 +67,8 @@ export function ServerSettings() {
 						aria-label="Server address"
 						placeholder="learn.example.com"
 						data-testid="server-address"
-						value={typed}
+						ref={field}
 						disabled={busy}
-						onChange={(e) => setTyped(e.target.value)}
 						className="h-7 w-52 rounded-sm border border-border bg-background px-2 font-ui text-xs text-foreground outline-none placeholder:text-muted-foreground/60"
 					/>
 					<Button type="submit" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" disabled={busy} aria-busy={busy} data-testid="server-connect">
