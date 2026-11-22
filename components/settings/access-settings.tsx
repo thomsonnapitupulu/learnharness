@@ -40,7 +40,7 @@ export function AccessSettings() {
 		<>
 			<SettingsRow label="Sign out" hint="Ends the session on this device." testid="row-sign-out">
 				<form method="post" action="/logout">
-					<Button type="submit" size="xs" variant="outline" className="cursor-pointer" data-testid="sign-out">Sign out</Button>
+					<Button type="submit" size="xs" variant="outline" className="relative touch-target cursor-pointer" data-testid="sign-out">Sign out</Button>
 				</form>
 			</SettingsRow>
 			<SettingsRow
@@ -48,7 +48,7 @@ export function AccessSettings() {
 				hint={failed ? <span role="alert">Could not sign out. Try again.</span> : "Ends every session, phones and computers alike. Your password is needed again."}
 				testid="row-sign-out-all"
 			>
-				<Button type="button" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" disabled={busy} aria-busy={busy} data-testid="sign-out-all" onClick={() => void signOutEverywhere()}>Sign out everywhere</Button>
+				<Button type="button" size="xs" variant="outline" className="relative touch-target cursor-pointer disabled:cursor-not-allowed" disabled={busy} aria-busy={busy} data-testid="sign-out-all" onClick={() => void signOutEverywhere()}>Sign out everywhere</Button>
 			</SettingsRow>
 		</>
 	);

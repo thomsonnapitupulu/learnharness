@@ -1,5 +1,7 @@
 import React, { act, useState } from "react";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
@@ -104,6 +106,25 @@ it("Settings remains painted, mounted and stateful beneath a child; one Escape r
 	await new Promise(resolve => setTimeout(resolve, 5));
 	assert.ok(document.activeElement === invoker, `focus returned to ${document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.tagName}`);
 	await f.escape(); assert.equal(document.querySelector('[data-testid="settings-dialog"]'), null);
+});
+
+it("on a phone the Settings window fills the visible screen, the sections become a row along the top, and its buttons are 44px (story 6)", async () => {
+	const f = fixture(); await f.mount(); await f.open();
+	const has = (id: string, ...tokens: string[]) => {
+		const list = byTest(id).className.split(/\s+/);
+		for (const token of tokens) assert.ok(list.includes(token), `${id}: ${token}`);
+	};
+	has("settings-dialog", "phone:fixed", "phone:inset-x-0", "phone:top-[var(--lh-vv-top,0px)]", "phone:h-[var(--lh-vvh,100dvh)]", "phone:max-h-none", "phone:w-auto", "phone:max-w-none",
+		"phone:rounded-none", "phone:border-0", "phone:pt-[env(safe-area-inset-top)]", "phone:pl-[env(safe-area-inset-left)]", "phone:pr-[env(safe-area-inset-right)]", "phone:pb-[env(safe-area-inset-bottom)]", "[html[data-lh-keyboard]_&]:pb-0");
+	has("settings-nav", "phone:w-auto", "phone:flex-row", "phone:overflow-x-auto", "phone:overflow-y-hidden", "phone:border-r-0", "phone:border-b");
+	has("settings-close", "phone:size-11");
+	has("settings-nav-appearance", "phone:min-h-11", "phone:whitespace-nowrap");
+	assert.ok(byTest("settings-content").closest('[data-testid="settings-dialog"]')!.querySelector(".phone\\:flex-col"), "the nav and the page stack on a phone");
+	for (const hr of byTest("settings-nav").querySelectorAll("hr")) assert.ok(hr.className.split(/\s+/).includes("phone:hidden"), "the dividers between nav groups do not make sense in a row");
+	// and the two section grids that were too wide for a phone
+	const root = (file: string) => fs.readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8");
+	assert.match(root("components/settings/theme-cards.tsx"), /grid grid-cols-3 gap-3 phone:grid-cols-2/);
+	assert.match(root("components/settings/appearance-section.tsx"), /grid grid-cols-2 gap-x-10 gap-y-2 phone:grid-cols-1/);
 });
 
 for (const outcome of ["blocked", "handled-without-close", "pending"] as const) {

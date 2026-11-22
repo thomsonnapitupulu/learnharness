@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { computeMenuPlacement, menuAnchorRect, type MenuSide } from "../components/menu-shell.tsx";
 
 /**
@@ -117,5 +118,44 @@ describe("menuAnchorRect — the anchor seam", () => {
 	});
 	it("is null with no anchor at all", () => {
 		assert.equal(menuAnchorRect({}, doc), null);
+	});
+});
+
+describe("computeMenuPlacement — across: a menu never runs off the sides of the screen (mobile epic, story 6)", () => {
+	const phone = (width: number) => ({ width, height: 800 });
+	const button = (left: number, right: number) => ({ top: 100, bottom: 140, left, right });
+
+	it("slides right when its button sits too far in for a wide menu to hang from (Settings → Agent on a 390px phone)", () => {
+		// The model button ends at x=278; a 352px menu hung from it would start at x=-74.
+		const p = computeMenuPlacement(button(198, 278), phone(390), 300, "down", "right", 352);
+		assert.equal(p.style.left, 8, "starts at the margin");
+		assert.ok(!("right" in p.style));
+		assert.equal(p.style.maxWidth, 374);
+		assert.ok(8 + 352 <= 390 - 8, "and its far edge is on the screen too");
+	});
+
+	it("takes the whole width between the margins when the screen is narrower than the menu (320px)", () => {
+		const p = computeMenuPlacement(button(130, 208), phone(320), 300, "down", "right", 352);
+		assert.equal(p.style.left, 8);
+		assert.equal(p.style.maxWidth, 304, "the page gives the menu at most this much");
+	});
+
+	it("a left-aligned menu near the right edge slides left to fit", () => {
+		const p = computeMenuPlacement(button(300, 380), phone(390), 300, "down", "left", 352);
+		assert.equal(p.style.left, 390 - 8 - 352);
+	});
+
+	it("is exactly as before when the menu fits beside its button, and when its width is not known", () => {
+		const fits = computeMenuPlacement(button(400, 600), viewport(800), 300, "down", "right", 352);
+		assert.equal(fits.style.right, 1280 - 600);
+		assert.ok(!("left" in fits.style));
+		const unknown = computeMenuPlacement(button(198, 278), phone(390), 300, "down", "right");
+		assert.equal(unknown.style.right, 390 - 278, "no width, no sideways correction");
+		assert.ok(!("left" in unknown.style));
+	});
+
+	it("the shell measures the menu's width and hands it over (the page, not this function, knows it)", () => {
+		const shell = readFileSync(new URL("../components/menu-shell.tsx", import.meta.url), "utf8");
+		assert.match(shell, /menuRef\.current\.scrollHeight,\s*preferredSide,\s*align,\s*menuRef\.current\.offsetWidth \|\| 0,/);
 	});
 });

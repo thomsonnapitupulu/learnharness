@@ -391,7 +391,7 @@ export function SettingsDialogBody({
 			aria-modal="true"
 			aria-label="Settings"
 			data-testid="settings-dialog"
-			className="settings-dialog-pop flex h-[620px] max-h-[85vh] w-[920px] max-w-[90vw] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"
+			className="settings-dialog-pop flex h-[620px] max-h-[85vh] w-[920px] max-w-[90vw] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl phone:fixed phone:inset-x-0 phone:top-[var(--lh-vv-top,0px)] phone:h-[var(--lh-vvh,100dvh)] phone:max-h-none phone:w-auto phone:max-w-none phone:rounded-none phone:border-0 phone:pt-[env(safe-area-inset-top)] phone:pl-[env(safe-area-inset-left)] phone:pr-[env(safe-area-inset-right)] phone:pb-[env(safe-area-inset-bottom)] [html[data-lh-keyboard]_&]:pb-0"
 			onClick={(e) => e.stopPropagation()}
 		>
 			{/* Header — the app's quiet CMU title language. */}
@@ -407,7 +407,7 @@ export function SettingsDialogBody({
 					type="button"
 					aria-label="Close settings"
 					data-testid="settings-close"
-					className="ml-auto size-7 rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					className="ml-auto size-7 rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground phone:size-11"
 					onClick={onClose}
 				>
 					<svg
@@ -423,22 +423,22 @@ export function SettingsDialogBody({
 					</Hint>
 			</header>
 
-			<div className="flex min-h-0 flex-1">
+			<div className="flex min-h-0 flex-1 phone:flex-col">
 				{/* Left nav — mono labels and theme-inherited decorative icons,
 					    active = bg-accent. */}
 				<nav
 					aria-label="Settings sections"
 					data-testid="settings-nav"
-					className="flex min-h-0 w-48 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border p-2"
+					className="flex min-h-0 w-48 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border p-2 phone:w-auto phone:flex-row phone:overflow-x-auto phone:overflow-y-hidden phone:border-r-0 phone:border-b"
 				>
 					{navSections.map((s, index) => (
 						<div key={s.id} className="shrink-0">
-							{index === SECTIONS.length && <hr className="my-2 border-border" />}
+							{index === SECTIONS.length && <hr className="my-2 border-border phone:hidden" />}
 							<button
 								type="button"
 								data-testid={`settings-nav-${s.id}`}
 								aria-current={selected === s.id}
-								className={`flex w-full items-center gap-2 break-words rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors ${
+								className={`flex w-full items-center gap-2 break-words rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors phone:min-h-11 phone:whitespace-nowrap ${
 									selected === s.id
 										? "bg-accent text-foreground"
 										: "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -448,7 +448,7 @@ export function SettingsDialogBody({
 								{s.icon && <s.icon aria-hidden="true" focusable="false" className="size-3.5 shrink-0" />}
 								<span className="min-w-0">{s.label}</span>
 							</button>
-							{s.id === "plugins" && <hr className="my-2 border-border" />}
+							{s.id === "plugins" && <hr className="my-2 border-border phone:hidden" />}
 						</div>
 					))}
 				</nav>

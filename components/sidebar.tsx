@@ -22,6 +22,7 @@ import { buildSessionTree, flattenSessionTree, folderDeletionScope, placementOf,
 import { useSourceDirectory } from "@/components/source-directory";
 import { NewFolderRow, SidebarFolderRow, SidebarFolderRule, SIDEBAR_COMPACT_ROW, sidebarNameFont, sidebarRail, sidebarRowBox, useOpenFolders, useSidebarDrop } from "@/components/sidebar-folders";
 import { useAppearance } from "@/components/settings/appearance";
+import { RowMenuButton } from "@/components/row-menu-button";
 import { SourceDragRow } from "@/components/source-folder-tree";
 import { OverlayScrollArea } from "@/components/overlay-scroll";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -385,6 +386,7 @@ export function SessionRow({
 			data-session-id={chat.id}
 			className={cn(
 				"relative flex w-full items-center gap-2 pr-3 text-left hover:bg-accent",
+				onContextMenu && "pointer-coarse:pr-12",
 				compact ? SIDEBAR_COMPACT_ROW : "py-2",
 				active && "bg-accent",
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-inset ring-border",
@@ -832,6 +834,14 @@ function SessionsSidebar() {
 							onContextMenu={(e) => openContext(e, c)}
 						/>
 					)}
+					{renamingId !== c.id && (
+						<RowMenuButton
+							label={`Actions for ${c.title}`}
+							open={ctxChatId === c.id}
+							testId="session-row-menu"
+							onClick={(e) => (ctxChatId === c.id ? setCtxChatId(null) : openContext(e, c))}
+						/>
+					)}
 				</SourceDragRow>
 			);
 		}
@@ -859,6 +869,8 @@ function SessionsSidebar() {
 					renaming={renamingFolderId === folder.id}
 					onToggle={() => toggleFolder(folder.id)}
 					onContextMenu={(e) => openFolderContext(e, folder.id)}
+					menuOpen={ctxFolderId === folder.id}
+					onMenuButton={(e) => (ctxFolderId === folder.id ? setCtxFolderId(null) : openFolderContext(e, folder.id))}
 					onRename={(name) => changeFolders({ action: "rename-folder", id: folder.id, name })}
 					onRenameDone={() => setRenamingFolderId(null)}
 				/>
@@ -1130,7 +1142,7 @@ function SessionsSidebar() {
 								setRenamingId(ctxChatId);
 								setCtxChatId(null);
 							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+							className="flex items-center rounded-lg px-2.5 py-1.5 pointer-coarse:min-h-11 text-left text-foreground transition-colors hover:bg-accent"
 						>
 							Rename
 						</button>
@@ -1152,7 +1164,7 @@ function SessionsSidebar() {
 								a.click();
 								a.remove();
 							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+							className="flex items-center rounded-lg px-2.5 py-1.5 pointer-coarse:min-h-11 text-left text-foreground transition-colors hover:bg-accent"
 						>
 							Export as Markdown…
 						</button>
@@ -1164,7 +1176,7 @@ function SessionsSidebar() {
 								if (target) setDeleting(target);
 								setCtxChatId(null);
 							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+							className="flex items-center rounded-lg px-2.5 py-1.5 pointer-coarse:min-h-11 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
 						>
 							Delete…
 						</button>
@@ -1187,7 +1199,7 @@ function SessionsSidebar() {
 							type="button"
 							data-testid="folder-ctx-rename"
 							onClick={() => { setRenamingFolderId(ctxFolderId); setCtxFolderId(null); }}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+							className="flex items-center rounded-lg px-2.5 py-1.5 pointer-coarse:min-h-11 text-left text-foreground transition-colors hover:bg-accent"
 						>
 							Rename
 						</button>
@@ -1201,7 +1213,7 @@ function SessionsSidebar() {
 								else setFolderOpen(id, true);
 								setCreatingFolder({ parentId: id });
 							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+							className="flex items-center rounded-lg px-2.5 py-1.5 pointer-coarse:min-h-11 text-left text-foreground transition-colors hover:bg-accent"
 						>
 							New subfolder
 						</button>
@@ -1209,7 +1221,7 @@ function SessionsSidebar() {
 							type="button"
 							data-testid="folder-ctx-delete"
 							onClick={() => deleteFolder(ctxFolderId)}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+							className="flex items-center rounded-lg px-2.5 py-1.5 pointer-coarse:min-h-11 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
 						>
 							Delete
 						</button>
