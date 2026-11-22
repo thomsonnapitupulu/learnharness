@@ -1,8 +1,10 @@
 /**
  * The composer's attach button (issue #285): the picker's twin of a file
  * drop. Picked files become quoted path chips at the caret through the
- * desktop bridge; the browser build explains instead. Same linkedom
- * shims as file-path-drop-zone.test.tsx (no native Selection there).
+ * desktop bridge; in a browser they are uploaded and the path the server saved
+ * each under is chipped instead (a fake XMLHttpRequest stands in for the
+ * server). Same linkedom shims as file-path-drop-zone.test.tsx (no native
+ * Selection there).
  */
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
@@ -16,6 +18,7 @@ import { attachmentPopupPlacement, pathsForFiles } from "../components/attach-fi
 import { restorePathSelection } from "../components/path-input-dom.ts";
 import { quoteFilePath } from "../src/core/file-paths.ts";
 import { InteractionLayersProvider, useInteractionLayers, type InteractionLayersController } from "../components/interaction-layers.tsx";
+import { MAX_UPLOAD_BYTES } from "../lib/upload-limits.ts";
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => { await cleanup?.(); cleanup = undefined; });
@@ -34,6 +37,23 @@ async function fixture({ desktop = true } = {}) {
 	win.HTMLElement.prototype.focus = function () { active = this; };
 	win.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 200, y: 600, left: 200, right: 240, top: 600, bottom: 640, width: 40, height: 40, toJSON() {} });
 	const backingPaths = new Map<File, string>();
+	/** The browser's XMLHttpRequest, as far as lib/upload-client.ts uses it. The test plays the server. */
+	class FakeXHR {
+		upload: { onprogress: ((event: { lengthComputable: boolean; loaded: number; total: number }) => void) | null } = { onprogress: null };
+		onload: (() => void) | null = null;
+		onerror: (() => void) | null = null;
+		onabort: (() => void) | null = null;
+		responseType = "";
+		status = 0;
+		response: unknown = null;
+		url = "";
+		sent: unknown;
+		aborted = false;
+		open(_method: string, url: string) { this.url = url; }
+		send(body: unknown) { this.sent = body; requests.push(this); }
+		abort() { this.aborted = true; this.onabort?.(); }
+	}
+	const requests: FakeXHR[] = [];
 	let pickerClicks = 0;
 	let folderCalls = 0;
 	let folderResult: string | null | Error = null;
@@ -44,6 +64,7 @@ async function fixture({ desktop = true } = {}) {
 	for (const [name, next] of Object.entries({
 		React, window: win, document: doc, Node: win.Node, HTMLElement: win.HTMLElement, Element: win.Element,
 		Event: win.Event, CustomEvent: win.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true, innerWidth: 1000, innerHeight: 800,
+		XMLHttpRequest: FakeXHR,
 	})) {
 		previous.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
 		Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: next });
@@ -80,6 +101,15 @@ async function fixture({ desktop = true } = {}) {
 		doc,
 		controller,
 		get pickerClicks() { return pickerClicks; },
+		requests,
+		async progress(index: number, loaded: number, total: number) { await act(async () => { requests[index]!.upload.onprogress?.({ lengthComputable: true, loaded, total }); }); },
+		async respond(index: number, status: number, body: unknown) {
+			await act(async () => { Object.assign(requests[index]!, { status, response: body }); requests[index]!.onload?.(); });
+		},
+		async fail(index: number) { await act(async () => { requests[index]!.onerror?.(); }); },
+		get status() { return doc.querySelector('[role="status"]')?.textContent ?? ""; },
+		get bars() { return Array.from(doc.querySelectorAll('[role="progressbar"]')).map((bar) => bar.getAttribute("aria-valuenow")); },
+		async leave() { await cleanup?.(); cleanup = undefined; },
 		get folderCalls() { return folderCalls; },
 		get sends() { return sends; },
 		setFolderResult(result: typeof folderResult) { folderResult = result; },
@@ -174,9 +204,10 @@ describe("composer attach button", () => {
 		assert.deepEqual(result, { paths: ["/notes/a.pdf"], skipped: 2 });
 	});
 
-	it("server render is the browser case: a disabled-looking paperclip between the input and Send", () => {
+	it("server render is the browser case: a working paperclip between the input and Send", () => {
 		const html = renderToStaticMarkup(<Composer busy={false} value="" onChange={() => {}} onSend={() => {}} onStop={() => {}} canSend={false} />);
-		assert.match(html, /aria-label="Attach files"[^>]*aria-disabled="true"|aria-disabled="true"[^>]*aria-label="Attach files"/);
+		assert.match(html, /aria-label="Attach files"[^>]*aria-disabled="false"|aria-disabled="false"[^>]*aria-label="Attach files"/);
+		assert.ok(!html.includes("aria-haspopup"), "no Files/Folder menu: the button opens the picker");
 		const editor = html.indexOf("data-file-path-input");
 		const attach = html.indexOf('data-testid="attach-files"');
 		const send = html.indexOf('aria-label="Send"');
@@ -287,12 +318,122 @@ describe("composer attach button", () => {
 		assert.equal(f.sends, 0);
 	});
 
-	it("browser: the button stays inert and the picker never opens", async () => {
+	it("browser: the paperclip opens the system picker straight away, with no menu", async () => {
 		const f = await fixture({ desktop: false });
-		assert.equal(f.button.getAttribute("aria-disabled"), "true");
+		assert.equal(f.button.getAttribute("aria-disabled"), "false");
 		await act(async () => { f.button.click(); });
-		assert.equal(f.pickerClicks, 0);
-		await f.pick([f.file("a.pdf", "/a.pdf")]);
+		assert.equal(f.pickerClicks, 1);
+		assert.equal(f.doc.querySelector('[role="menu"]'), null);
+		assert.equal(f.doc.querySelector('[role="status"]'), null);
+		assert.equal(f.requests.length, 0, "picking nothing sends nothing");
+		await f.pick([]);
+		assert.equal(f.value, "readthis");
+	});
+
+	it("browser: picked files go up one after another with progress, then their server paths are chipped at the caret", async () => {
+		const f = await fixture({ desktop: false });
+		f.caret(4);
+		await f.pick([f.file("week 3.pdf"), f.file("board.jpg")]);
+		assert.deepEqual(f.requests.map((request) => request.url), ["/api/uploads?name=week%203.pdf"], "one at a time");
+		assert.equal(f.requests[0]!.sent instanceof File, true, "the file itself is the body");
+		assert.equal(f.requests[0]!.responseType, "json");
+		assert.deepEqual(f.bars, ["0", "0"]);
+		assert.match(f.status, /week 3\.pdf/);
+		assert.equal(f.doc.querySelector<HTMLElement>('[role="status"]')!.parentElement, f.doc.body, "above the composer, outside its clipping dock");
+		await f.progress(0, 5, 10);
+		assert.deepEqual(f.bars, ["50", "0"]);
+		await f.respond(0, 201, { path: "/srv/lh/data/uploads/up_a_000000000001/week 3.pdf" });
+		assert.deepEqual(f.requests.map((request) => request.url), ["/api/uploads?name=week%203.pdf", "/api/uploads?name=board.jpg"]);
+		assert.equal(f.value, "readthis", "nothing in the draft until the files are all up");
+		await f.respond(1, 201, { path: "/srv/lh/data/uploads/up_b_000000000002/board.jpg" });
+		assert.equal(f.value, `read ${["/srv/lh/data/uploads/up_a_000000000001/week 3.pdf", "/srv/lh/data/uploads/up_b_000000000002/board.jpg"].map(quoteFilePath).join(" ")} this`);
+		assert.equal(f.status, "", "the progress goes away when they are in");
+		assert.equal(f.byteReads, 0, "the page never reads the bytes itself; the browser sends the file");
+		assert.equal(f.sends, 0);
+	});
+
+	it("browser: a file that fails says which and why, the others still attach, and the draft keeps its text", async () => {
+		const f = await fixture({ desktop: false });
+		f.caret(4);
+		await f.pick([f.file("a.pdf"), f.file("b.pdf"), f.file("c.pdf")]);
+		await f.respond(0, 201, { path: "/srv/lh/data/uploads/up_a_000000000001/a.pdf" });
+		await f.fail(1);
+		await f.respond(2, 500, { error: "The file could not be saved on the server." });
+		assert.equal(f.value, `read ${quoteFilePath("/srv/lh/data/uploads/up_a_000000000001/a.pdf")} this`);
+		assert.match(f.status, /b\.pdf could not be sent\. Check the connection/);
+		assert.match(f.status, /The file could not be saved on the server\./);
+		assert.equal(f.doc.querySelector('[role="progressbar"]'), null);
+		await act(async () => { f.doc.body.dispatchEvent(new window.Event("pointerdown", { bubbles: true })); });
+		assert.equal(f.status, "", "tapping elsewhere dismisses the notice");
+	});
+
+	it("browser: a signed-out session and a too-large answer say so in words", async () => {
+		const f = await fixture({ desktop: false });
+		await f.pick([f.file("a.pdf")]);
+		await f.respond(0, 401, { error: "Sign in to LearnHarness first.", signIn: "/login" });
+		assert.match(f.status, /You were signed out\. Sign in again, then attach a\.pdf\./);
+		await f.pick([f.file("b.pdf")]);
+		await f.respond(1, 413, null);
+		assert.match(f.status, /b\.pdf is larger than 64 MiB/);
+		assert.equal(f.value, "readthis");
+	});
+
+	it("browser: every failure names the file, and a transfer that outlasts the server's 5 minutes says so", async () => {
+		const f = await fixture({ desktop: false });
+		await f.pick([f.file("slow.pdf")]);
+		await f.respond(0, 408, null);
+		assert.match(f.status, /slow\.pdf took longer than 5 minutes to send, so it was stopped\. Try again on a faster connection, or with a smaller file\./);
+		await f.pick([f.file("a.pdf")]);
+		await f.respond(1, 403, { error: "Cross-site writes are not allowed." });
+		assert.equal(f.status, "a.pdf: Cross-site writes are not allowed.");
+		await f.pick([f.file("b.pdf")]);
+		await f.respond(2, 500, { error: "The file could not be saved on the server." });
+		assert.equal(f.status, "b.pdf: The file could not be saved on the server.");
+		await f.pick([f.file("c.pdf")]);
+		await f.respond(3, 502, null);
+		assert.equal(f.status, "c.pdf could not be attached (error 502).");
+	});
+
+	it("browser: the progress panel does not announce every percent to a screen reader", async () => {
+		const f = await fixture({ desktop: false });
+		await f.pick([f.file("a.pdf")]);
+		const panel = f.doc.querySelector<HTMLElement>('[data-testid="attachment-popup"]')!;
+		assert.equal(panel.getAttribute("aria-live"), "off", "while sending");
+		assert.equal(f.doc.querySelector('[role="progressbar"]')!.getAttribute("aria-valuenow"), "0", "the bar still carries its value");
+		await f.respond(0, 500, { error: "The file could not be saved on the server." });
+		const notice = f.doc.querySelector<HTMLElement>('[data-testid="attachment-popup"]')!;
+		assert.equal(notice.getAttribute("aria-live"), null, "a failure is announced, as a status is");
+	});
+
+	it("browser: a file over 64 MiB is refused here, without a request", async () => {
+		const f = await fixture({ desktop: false });
+		const big = f.file("film.mov");
+		Object.defineProperty(big, "size", { value: MAX_UPLOAD_BYTES + 1 });
+		await f.pick([big]);
+		assert.equal(f.requests.length, 0);
+		assert.match(f.status, /film\.mov is larger than 64 MiB/);
+		const edge = f.file("edge.bin");
+		Object.defineProperty(edge, "size", { value: MAX_UPLOAD_BYTES });
+		await f.pick([edge]);
+		assert.equal(f.requests.length, 1, "exactly 64 MiB is allowed");
+	});
+
+	it("browser: a second pick while files are still going up is ignored", async () => {
+		const f = await fixture({ desktop: false });
+		await f.pick([f.file("a.pdf")]);
+		await act(async () => { f.button.click(); });
+		assert.equal(f.button.getAttribute("aria-disabled"), "true");
+		assert.equal(f.pickerClicks, 0, "the picker does not open on top of a transfer");
+		await f.pick([f.file("b.pdf")]);
+		assert.equal(f.requests.length, 1);
+	});
+
+	it("browser: leaving the page mid-upload stops the transfer and puts nothing in the draft", async () => {
+		const f = await fixture({ desktop: false });
+		await f.pick([f.file("a.pdf"), f.file("b.pdf")]);
+		await f.leave();
+		assert.equal(f.requests[0]!.aborted, true);
+		assert.equal(f.requests.length, 1, "the second file never starts");
 		assert.equal(f.value, "readthis");
 	});
 });

@@ -32,6 +32,8 @@ export const PATHS = {
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
 	debug: path.join(/* turbopackIgnore: true */ DATA_ROOT, "debug"),
+	/** Files sent up from a browser (src/server/uploads.ts): uploads/<id>/<name>. */
+	uploads: path.join(/* turbopackIgnore: true */ DATA_ROOT, "uploads"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────
