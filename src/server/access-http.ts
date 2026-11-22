@@ -1,12 +1,14 @@
 /**
- * HTTP handlers for the hosted sign-in (mobile epic, story 1): the sign-in
- * page, sign-out, and the access status Settings reads. The app/ routes are
- * one-line wrappers, as for the other *-http modules. They run behind the
- * proxy, which has already vetted host and HTTPS (access-gate.ts).
+ * HTTP handlers for the hosted sign-in (mobile epic, stories 1 and 2): the
+ * sign-in page, sign-out, the unlock page an emailed link opens, and the
+ * access status Settings reads. The app/ routes are one-line wrappers, as for
+ * the other *-http modules. They run behind the proxy, which has already
+ * vetted host and HTTPS (access-gate.ts).
  */
 
+import { emailUnlockLink, mailConfig, type UnlockMail } from "./access-mail.ts";
 import { clientAddress, loginOn, overHttps, safeNext } from "./access-gate.ts";
-import { html, loginPage, notSetUpPage, readForm, redirect, signedOutPage } from "./access-pages.ts";
+import { html, loginPage, notSetUpPage, readForm, redirect, signedOutPage, unlockedPage, unlockFailedPage, unlockPage } from "./access-pages.ts";
 import {
 	clearedSessionCookie,
 	cookieValue,
@@ -16,9 +18,11 @@ import {
 	readSession,
 	recordFailure,
 	recordSignIn,
+	redeemUnlockToken,
 	sessionCookie,
 	sessionCookieName,
 	signOutEverywhere,
+	unlockTokenValid,
 	verifyPassword,
 } from "./access-session.ts";
 import { crossSiteWrite } from "./desktop-access.ts";
@@ -27,11 +31,27 @@ import { crossSiteWrite } from "./desktop-access.ts";
 const limiter = createLimiter();
 
 const NO_STORE = { "Cache-Control": "no-store" };
-const LOCKED_TEXT = "Sign-in is locked after too many wrong passwords. To unlock it, run on the server: npm run access -- unlock";
+const LOCKED = "Sign-in is locked after too many wrong passwords.";
 
 function waitText(ms: number): string {
 	const minutes = Math.ceil(ms / 60_000);
 	return minutes <= 1 ? "Too many wrong passwords. Try again in a minute." : `Too many wrong passwords. Try again in ${minutes} minutes.`;
+}
+
+function inText(ms: number): string {
+	const minutes = Math.max(1, Math.ceil(ms / 60_000));
+	if (minutes < 60) return minutes === 1 ? "a minute" : `${minutes} minutes`;
+	const hours = Math.ceil(minutes / 60);
+	return hours === 1 ? "an hour" : `${hours} hours`;
+}
+
+/** What the locked page says, given what just happened to the unlock email. */
+function lockedText(sent?: UnlockMail): string {
+	if (sent === "sent") return `${LOCKED} An unlock link was emailed to you. It works for 15 minutes.`;
+	if (sent === "failed") return `${LOCKED} The unlock email could not be sent (the server's log says why). To unlock it, run on the server: npm run access -- unlock`;
+	if (typeof sent === "object") return `${LOCKED} A link was emailed a little while ago. You can ask for another in ${inText(sent.waitMs)}.`;
+	if (mailConfig()) return `${LOCKED} Use the link emailed to you, or ask for a new one below. Or, on the server: npm run access -- unlock`;
+	return `${LOCKED} To unlock it, run on the server: npm run access -- unlock`;
 }
 
 /** GET /login */
@@ -41,7 +61,7 @@ export function accessSignInPage(request: Request): Response {
 	const next = safeNext(new URL(request.url).searchParams.get("next"));
 	const token = cookieValue(request.headers.get("cookie"), sessionCookieName(overHttps(request)));
 	if (readSession(state.sessionKey, token, Date.now())) return redirect(next);
-	return html(200, loginPage({ next, locked: state.locked, message: state.locked ? LOCKED_TEXT : "" }));
+	return html(200, loginPage({ next, locked: state.locked, canEmail: mailConfig() !== null, message: state.locked ? lockedText() : "" }));
 }
 
 /** POST /login */
@@ -51,7 +71,7 @@ export async function accessSignIn(request: Request): Promise<Response> {
 	const next = safeNext(form?.get("next"));
 	const state = readAccessState();
 	if (!state.password) return html(409, notSetUpPage());
-	if (state.locked) return html(423, loginPage({ next, locked: true, message: LOCKED_TEXT }));
+	if (state.locked) return html(423, loginPage({ next, locked: true, canEmail: mailConfig() !== null, message: lockedText() }));
 
 	const client = clientAddress(request);
 	const wait = limiter.waitMs(client, Date.now());
@@ -70,7 +90,10 @@ export async function accessSignIn(request: Request): Promise<Response> {
 	if (!ok) {
 		const after = recordFailure(client, now);
 		console.warn(`[access] wrong password from ${client}${after.locked ? " (sign-in is now locked)" : ""}`);
-		if (after.locked) return html(423, loginPage({ next, locked: true, message: LOCKED_TEXT }));
+		if (after.locked) {
+			const sent = await emailUnlockLink(request, `Sign-in was locked after ${after.failures.length} wrong passwords within an hour, the latest from ${client}.`);
+			return html(423, loginPage({ next, locked: true, canEmail: mailConfig() !== null, message: lockedText(sent) }));
+		}
 		const delay = limiter.waitMs(client, now);
 		return html(401, loginPage({ next, message: delay > 0 ? waitText(delay) : "That password is not right." }));
 	}
@@ -78,6 +101,33 @@ export async function accessSignIn(request: Request): Promise<Response> {
 	recordSignIn(client, now);
 	console.info(`[access] signed in from ${client}`);
 	return redirect(next, { "Set-Cookie": sessionCookie(issueSession(state.sessionKey, now, now), now, now, overHttps(request)) });
+}
+
+/** GET /unlock?token=…, the link in the email. It asks first: a mail scanner
+ * that previews the link must not unlock anything. */
+export function accessUnlockPage(request: Request): Response {
+	if (!readAccessState().password) return html(200, notSetUpPage());
+	const token = new URL(request.url).searchParams.get("token");
+	if (token === null || !unlockTokenValid(token, Date.now())) return html(410, unlockFailedPage());
+	return html(200, unlockPage(token));
+}
+
+/** POST /unlock. With a `token` it spends the link; without one it is the
+ * "Email me an unlock link" button on the locked sign-in page. */
+export async function accessUnlock(request: Request): Promise<Response> {
+	if (crossSiteWrite(request)) return html(403, unlockFailedPage("That request came from another site and was refused."));
+	const form = await readForm(request);
+	const state = readAccessState();
+	if (!state.password) return html(409, notSetUpPage());
+	const token = form?.get("token");
+	if (token !== null && token !== undefined) {
+		if (!redeemUnlockToken(token, Date.now())) return html(410, unlockFailedPage());
+		console.info("[access] sign-in unlocked with an emailed link");
+		return html(200, unlockedPage());
+	}
+	if (!state.locked) return redirect("/login");
+	const sent = await emailUnlockLink(request, `You asked for an unlock link (from ${clientAddress(request)}).`);
+	return html(200, loginPage({ locked: true, canEmail: mailConfig() !== null, message: lockedText(sent) }));
 }
 
 /** GET /logout: a button, because a link or a prefetch must not sign anyone out. */

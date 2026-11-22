@@ -5,14 +5,18 @@
  *   npm run access -- sign-out-all             end every session
  *   npm run access -- unlock                   clear a lockout after too many wrong passwords
  *   npm run access -- status
+ *   npm run access -- test-email               send a test email the way the unlock link is sent
  *
  * It reads and writes the access.json the server uses, which sits beside
- * LH_AUTH_FILE: run it as the service user with the service's environment.
+ * LH_AUTH_FILE: run it as the service user with the service's environment
+ * (LH_ACCESS_EMAIL, LH_ALLOWED_HOSTS and AWS_REGION matter to the email).
  */
 import { ACCESS_FILE } from "../config.ts";
+import { mailConfig, maskEmail, sendMail } from "../src/server/access-mail.ts";
 import { generatePassword, MIN_PASSWORD, readAccessState, setPassword, signOutEverywhere, unlockSignIn } from "../src/server/access-session.ts";
 
-const USAGE = "Usage: npm run access -- set-password [--stdin] | sign-out-all | unlock | status";
+const USAGE = "Usage: npm run access -- set-password [--stdin] | sign-out-all | unlock | status | test-email";
+const NO_EMAIL = "No unlock email address: set LH_ACCESS_EMAIL (and LH_ALLOWED_HOSTS, whose first name is the sender's domain) in this shell, as the service has them.";
 
 async function readStdin(): Promise<string> {
 	const chunks: Buffer[] = [];
@@ -57,6 +61,24 @@ async function main(): Promise<number> {
 			console.log(`Locked:          ${state.locked ? `yes, since ${when(state.lockedAt)}` : "no"}`);
 			console.log(`Last sign-in:    ${state.lastSignIn ? `${when(state.lastSignIn.at)} from ${state.lastSignIn.client}` : "never"}`);
 			console.log(`Wrong passwords: ${state.failures.length} recent${state.failures.length ? `, latest ${when(state.failures.at(-1)!.at)} from ${state.failures.at(-1)!.client}` : ""}`);
+			const mail = mailConfig();
+			console.log(`Unlock email:    ${mail ? `to ${maskEmail(mail.to)}, from ${mail.from}` : "not set up (needs LH_ACCESS_EMAIL and LH_ALLOWED_HOSTS in this shell)"}`);
+			console.log(`Last email sent: ${when(state.mailed.at(-1) ?? null)}`);
+			return 0;
+		}
+		case "test-email": {
+			const mail = mailConfig();
+			if (!mail) {
+				console.error(NO_EMAIL);
+				return 1;
+			}
+			try {
+				await sendMail({ ...mail, subject: "LearnHarness test email", text: "This is a test of the unlock email. Nothing else to do.\n" });
+			} catch (error) {
+				console.error(`Could not send: ${error instanceof Error ? error.message : String(error)}`);
+				return 1;
+			}
+			console.log(`Sent a test email to ${maskEmail(mail.to)} from ${mail.from}.`);
 			return 0;
 		}
 		default:
