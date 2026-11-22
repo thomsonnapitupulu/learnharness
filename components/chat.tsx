@@ -16,6 +16,7 @@ import { visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog";
 import { Hint } from "@/components/ui/hint";
 import { cn } from "@/lib/utils";
+import { SEND_KEY_INIT, useOnScreenKeyboard } from "@/lib/touch-keyboard";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom";
 import {
@@ -34,7 +35,7 @@ import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
 import { MalformedQuestion } from "@/components/malformed-question";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
-import { ChatSessionComposer } from "@/components/composer";
+import { ChatSessionComposer, nextProblemPlaceholder } from "@/components/composer";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
@@ -1036,11 +1037,11 @@ export function Chat({
 	const renderSideEntry = (sourceMessageId?: string) => {
 		if (!sourceMessageId) return null;
 		const hasHistory = sideThread.threads.some((thread) => thread.anchor.messageId === sourceMessageId && thread.messages.length > 0);
-		return <div className="mt-1 flex justify-end">
+		return <div className="mt-1 flex justify-end pointer-coarse:pb-2.5 pointer-coarse:pr-2.5">
 			<Button type="button" variant="ghost" size="icon-xs" data-testid="side-conversation-button" data-side-segment-id={sourceMessageId}
 				data-has-history={hasHistory} aria-label={hasHistory ? "Open side conversation" : "Ask a side question"}
 				title={hasHistory ? "Open side conversation" : "Ask a side question"}
-				className={hasHistory ? "border border-border/60 text-muted-foreground" : "text-muted-foreground/40 hover:text-muted-foreground"}
+				className={cn("relative touch-target", hasHistory ? "border border-border/60 text-muted-foreground" : "text-muted-foreground/40 hover:text-muted-foreground")}
 				onClick={(event) => openSideThread({ sourceMessageId, anchor: { kind: "element", element: event.currentTarget } })}>
 				<MessageCircleQuestionIcon aria-hidden className="size-3.5" fill="currentColor" fillOpacity={hasHistory ? 0.12 : 0} />
 			</Button>
@@ -1124,6 +1125,7 @@ export function Chat({
 	 * kind, nothing active, nothing in flight, and at least one problem
 	 * has ever been posed (the fresh session's opening turn is owed, not
 	 * the move-on). Enter-on-empty and the Next chip both key on it. */
+	const onScreenKeys = useOnScreenKeyboard();
 	const nextReady =
 		kind === "practice" &&
 		!pending &&
@@ -1702,7 +1704,7 @@ export function Chat({
 								setRenaming(true);
 							}}
 							data-plugin-chrome-title
-							className="lh-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-3xl tracking-tight phone:text-xl transition-colors hover:bg-accent"
+							className="lh-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 phone:py-2 text-left font-title text-3xl tracking-tight phone:text-xl transition-colors hover:bg-accent"
 						>
 							{titleText}
 							</button>
@@ -2111,7 +2113,7 @@ export function Chat({
 										type="button"
 										data-testid="setup-cta"
 										onClick={() => setSetupOpen(true)}
-										className="rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent cursor-pointer"
+										className="relative touch-target rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent cursor-pointer"
 									>
 										Set up your models
 									</button>
@@ -2135,13 +2137,15 @@ export function Chat({
 							onStop={abortInFlightTurn}
 							sendAllowed={sendAllowed}
 							dictationActive={dictation.active}
+							dictation={dictation}
+							dictationDisabled={pluginOwnsDock && !pluginMicAvailable}
 							onEscape={dictation.active ? dictation.cancel : undefined}
 							// The pause affordance (owner round 16): the placeholder
 							// IS the hint — empty state, exactly where Enter-on-empty
 							// applies.
 							nextProblem={nextReady}
 							onNext={sendNext}
-							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
+							placeholder={nextReady ? nextProblemPlaceholder(onScreenKeys) : undefined}
 						/>
 					}
 					onSubmitAnswer={(output) => {
@@ -2229,7 +2233,7 @@ export function Chat({
 						onSend={() => {
 							const input = citationEdit.input?.isConnected ? citationEdit.input : citeInput();
 							if (input === composerInputRef.current) onSend();
-							else if (input) requestAnimationFrame(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+							else if (input) requestAnimationFrame(() => input.dispatchEvent(new KeyboardEvent("keydown", SEND_KEY_INIT)));
 						}}
 					/>
 				)}

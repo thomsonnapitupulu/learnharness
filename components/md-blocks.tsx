@@ -107,7 +107,7 @@ export function CopyCorner({
 				type="button"
 				aria-label={label}
 				data-testid="md-copy"
-				className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/md:opacity-100"
+				className="relative touch-target flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/md:opacity-100 pointer-coarse:opacity-100"
 				onClick={(e) => {
 					blurAfterPointerClick(e);
 					void copyText(getText()).then((ok) => {
@@ -219,7 +219,7 @@ function MermaidInline({ chart }: { chart: string }) {
 						type="button"
 						aria-label="Expand diagram"
 						data-testid="md-mermaid-expand"
-												className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/md:opacity-100"
+												className="relative touch-target flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/md:opacity-100 pointer-coarse:opacity-100"
 						onClick={(e) => {
 							blurAfterPointerClick(e);
 							overlay.openMermaid(chart);
@@ -388,14 +388,16 @@ export function MarkdownTable(props: ComponentProps<"table"> & ExtraProps) {
 	const { children, node, ...rest } = props;
 	const ref = useRef<HTMLTableElement>(null);
 	return (
-		<div className="group/md relative my-4" data-testid="md-table">
+		<div className="group/md relative my-4 pointer-coarse:flex pointer-coarse:flex-col" data-testid="md-table">
 			{!displayOnly && <CopyCorner
 				// Contained in the table's top-right corner (owner note, 2026-09-19:
 				// the old -top-3 lifted only half the 24px button above the 12px
 				// offset, so it straddled the top outline). 4px inset, z above the
 				// cells it hovers over; the scroll container stays under it (the
 				// corner is fixed to the wrapper, not the scrolling table).
-				className="absolute top-1 right-1 z-10"
+				// On a touch screen the button is always visible, so it sits in a row above
+				// the table instead of over the last header cell (story 5a test).
+				className="absolute top-1 right-1 z-10 pointer-coarse:static pointer-coarse:self-end"
 				label="Copy table"
 				getText={() => (ref.current ? tableDataToMarkdown(extractTableDataFromElement(ref.current)) : "")}
 			/>}

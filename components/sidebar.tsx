@@ -884,7 +884,7 @@ function SessionsSidebar() {
 							href="/"
 							aria-label="Home"
 							onClick={close}
-							className="lh-no-drag flex size-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50"
+							className="lh-no-drag flex size-9 phone:size-11 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50"
 						>
 							<LhMark className="size-6" />
 						</Link>
@@ -895,7 +895,7 @@ function SessionsSidebar() {
 							size="icon"
 							aria-label="Close sidebar"
 							onClick={toggle}
-							className="lh-no-drag"
+							className="lh-no-drag phone:size-11"
 						>
 							<PanelLeftCloseIcon className="size-4" />
 						</Button>
@@ -909,7 +909,7 @@ function SessionsSidebar() {
 						data-testid="new-session"
 						title="Teaching"
 						onClick={() => { close(); void newSession(); }}
-						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 phone:min-h-11 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<PlusIcon className="size-3 shrink-0" />
 						<span className="min-w-0 truncate">Teaching</span>
@@ -920,7 +920,7 @@ function SessionsSidebar() {
 						data-testid="new-session-practice"
 						title="Practice"
 						onClick={() => { close(); router.push("/chat/new?mode=practice"); }}
-						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 phone:min-h-11 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<DumbbellIcon className="size-3 shrink-0" />
 						<span className="min-w-0 truncate">Practice</span>
@@ -984,7 +984,7 @@ function SessionsSidebar() {
 							}}
 							placeholder="Search…"
 							aria-label="Search sessions"
-							className="h-6 rounded-sm border-border bg-background pl-6 text-xs placeholder:text-muted-foreground/60"
+							className="h-6 phone:h-11 rounded-sm border-border bg-background pl-6 text-xs phone:text-[16px] placeholder:text-muted-foreground/60"
 						/>
 						<SearchIcon className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground/70" />
 					</span>
@@ -996,7 +996,7 @@ function SessionsSidebar() {
 								aria-label="Add folder"
 								data-testid="sidebar-add-folder"
 								onClick={() => setCreatingFolder({ parentId: null })}
-								className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								className="flex size-6 phone:size-11 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 							>
 								<FolderPlusIcon className="size-3.5" />
 							</button>
@@ -1020,7 +1020,7 @@ function SessionsSidebar() {
 							data-testid={`kind-filter-${f}`}
 							onClick={() => setFilter(f)}
 							className={cn(
-								"flex-1 rounded-sm px-2 py-1 text-[11px] uppercase tracking-wider transition-colors",
+								"flex-1 rounded-sm px-2 py-1 phone:flex phone:min-h-11 phone:items-center phone:justify-center text-[11px] uppercase tracking-wider transition-colors",
 								kindFilter === f
 									? "bg-accent text-foreground"
 									: "text-muted-foreground hover:text-foreground",
@@ -1082,7 +1082,7 @@ function SessionsSidebar() {
 								type="button"
 								onClick={() => { close(); openSettings(); }}
 								data-testid="settings-entry"
-								className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								className="flex items-center gap-1.5 rounded-md px-2 py-1.5 phone:min-h-11 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 							>
 								<SettingsIcon className="size-3" />
 								Settings

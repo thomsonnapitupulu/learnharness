@@ -125,7 +125,7 @@ export function StatsBar({
 				onClick={() => setOpen((o) => !o)}
 				aria-expanded={open}
 				data-testid="stats-summary"
-				className="flex items-center gap-1.5 tabular-nums transition-colors hover:text-foreground"
+				className="relative touch-target flex items-center gap-1.5 tabular-nums transition-colors hover:text-foreground"
 			>
 				<span data-testid="stats-context">
 					{contextLabel}
@@ -202,7 +202,9 @@ export function StatsBar({
 			    meter expand into the row's free width; justify-center keeps the
 			    lone idle mic button visually centered. */}
 			{dictationSlot && (
-				<div className="flex min-w-0 flex-1 items-center justify-center">{dictationSlot}</div>
+				// Not on a phone (story 5a): the row has no room for it there, and the
+				// microphone sits in the composer row instead (DictationMic).
+				<div className="flex min-w-0 flex-1 items-center justify-center phone:hidden">{dictationSlot}</div>
 			)}
 			{/* The model + thinking control — one controller for the conversation
 			    agents (prober/teacher); the record's `turns` above still folds

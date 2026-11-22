@@ -5,11 +5,13 @@ import { CITATION_MAX_COMMENT_LENGTH } from "@/src/core";
 import { Button } from "./ui/button";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
+import { enterMaySend, onScreenKeyboard } from "../lib/touch-keyboard";
 
 /**
  * THE CITATION COMMENT EDITOR (2026-10-31; behaviour follows T3 Code's
  * citation comment editor, MIT). Enter saves, ⌘/Ctrl+Enter saves and
- * sends, Shift+Enter is a newline, Escape cancels. Clicking away or moving
+ * sends, Shift+Enter is a newline, Escape cancels. On an on-screen
+ * keyboard (story 5a) Enter is a newline too: the Save button saves. Clicking away or moving
  * focus out commits a typed draft; an over-length draft keeps the popover
  * open rather than being dropped.
  */
@@ -32,7 +34,8 @@ export function commentKeyAction(event: { key: string; shiftKey: boolean; metaKe
 	if (event.isComposing) return null;
 	if (event.key === "Escape") return "cancel";
 	if (event.key !== "Enter" || event.shiftKey) return null;
-	return event.metaKey || event.ctrlKey ? "save-send" : "save";
+	if (event.metaKey || event.ctrlKey) return "save-send";
+	return enterMaySend(event) ? "save" : null;
 }
 
 export function CitationCommentEditor({ initial, onDraftChange, onSave, onCancel }: {
@@ -54,7 +57,9 @@ export function CitationCommentEditor({ initial, onDraftChange, onSave, onCancel
 				value={draft}
 				rows={2}
 				aria-label="Comment on selected text"
-				aria-description="Enter to save the citation comment; Command/Ctrl+Enter to save and send; Shift+Enter for a new line."
+				aria-description={onScreenKeyboard()
+					? "Enter for a new line; the Save button saves the citation comment; Command/Ctrl+Enter to save and send."
+					: "Enter to save the citation comment; Command/Ctrl+Enter to save and send; Shift+Enter for a new line."}
 				placeholder="Add an optional comment..."
 				className="field-sizing-content max-h-40 min-h-16 w-full resize-none rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
 				onChange={(event) => { setDraft(event.target.value); onDraftChange(event.target.value); }}

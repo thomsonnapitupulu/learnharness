@@ -9,7 +9,7 @@ import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
-import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
+import { DictationBar, DictationMic, DictationNote, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
@@ -18,6 +18,7 @@ import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
+import { enterMaySend } from "@/lib/touch-keyboard";
 import { SessionStarter } from "@/components/start-session";
 import type { TurnUsage } from "@/src/core";
 
@@ -244,6 +245,7 @@ export function Home({
 						)}
 					/>
 					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
+					<DictationNote dictation={dictation} className="mb-2" />
 					<form
 						data-attachment-composer=""
 						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
@@ -272,7 +274,7 @@ export function Home({
 								dictation.cancel();
 								return;
 							}
-							if (e.key === "Enter" && !e.shiftKey) {
+							if (e.key === "Enter" && !e.shiftKey && enterMaySend(e)) {
 								e.preventDefault();
 								void start();
 							}
@@ -281,6 +283,7 @@ export function Home({
 						autoFocus
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
+					<DictationMic dictation={dictation} />
 					<AttachFilesButton editorRef={topicInputRef} />
 					{/* No tooltip on the start square — the ↵ glyph is the
 					    affordance (owner, subtlety round 2026-09-25). */}
@@ -288,7 +291,7 @@ export function Home({
 						type="submit"
 						aria-label="Start session"
 						disabled={(!topic.trim() && !dictation.active) || busy}
-						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
+						className="flex size-10 pointer-coarse:size-11 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />
 					</button>
@@ -309,7 +312,7 @@ export function Home({
 										data-testid={`home-mode-${m}`}
 										onClick={() => setMode(m)}
 										className={
-											"flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] uppercase tracking-wider transition-colors " +
+											"relative touch-target flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] uppercase tracking-wider transition-colors " +
 											(mode === m
 												? "bg-accent text-foreground"
 												: "text-muted-foreground hover:text-foreground")

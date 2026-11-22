@@ -219,7 +219,7 @@ export function AttachFilesButton({ editorRef }: { editorRef: React.RefObject<HT
 						if (desktop) { setNotice(""); setOpen(!open); }
 						else if (!sendingRef.current) { setNotice(""); pickerRef.current?.click(); }
 					}}
-					className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-disabled:cursor-default aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
+					className="flex size-10 pointer-coarse:size-11 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-disabled:cursor-default aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
 				>
 					<PaperclipIcon className="size-4" />
 				</button>

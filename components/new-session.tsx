@@ -205,6 +205,7 @@ export function DraftShell({
 										onSend={handleSend}
 										onStop={() => {}}
 										canSend={canSend}
+										dictation={dictation}
 										inputRef={composerInputRef}
 										autoFocus
 										onEscape={dictation.active ? dictation.cancel : undefined}

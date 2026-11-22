@@ -7,6 +7,8 @@ import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
+import { EnterHint } from "@/components/enter-hint";
+import { enterMaySend } from "@/lib/touch-keyboard";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { PathInput } from "@/components/path-input";
@@ -183,7 +185,7 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 						}
 						// Enter SENDS — the single lane (owner round 2, 2026-10-05);
 						// Shift+Enter is the newline, ⌘/Ctrl+Enter the chord too.
-						if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+						if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey) && enterMaySend(e)) {
 							e.preventDefault();
 							submit();
 						}
@@ -198,9 +200,7 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
 				    field 10 − p-1 (4) = button 6. */}
 				<div className="flex items-center justify-between gap-2 p-1">
-					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
-						{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
-					</span>
+					<EnterHint compacting={compactionRunning} />
 					<Button
 						type="button"
 						data-testid="practice-send"

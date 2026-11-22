@@ -1,4 +1,5 @@
 import type { PluginQuestionEditorKey } from "../src/core/index.ts";
+import { enterMaySend } from "../lib/touch-keyboard.ts";
 
 // Private host seam, deliberately not a public keyboard/field-scope SDK.
 const claimed = new WeakSet<object>();
@@ -42,6 +43,8 @@ export function capturePluginQuestionKey(event: KeyboardEvent): void {
 	if (key === "Tab" || key === "Escape") { claim(); current.cycle(key); }
 	// A missing hook or "pass" delegates to native host defaults: Enter
 	// submits, Shift+Enter keeps native editing without a second host submit.
-	if (key === "Enter") { claim(); current.submit(); }
+	// On an on-screen keyboard Enter is the editor's own new line (story 5a):
+	// the host's submit button, or Cmd/Ctrl+Enter above, sends.
+	if (key === "Enter" && enterMaySend(event)) { claim(); current.submit(); }
 	if (key === "Shift+Enter") claimed.add(event);
 }
