@@ -166,10 +166,10 @@ describe("the desktop app with a server saved in Settings", () => {
 		f.finish();
 	});
 
-	it("refuses to pick a folder on this computer, and says the ChatGPT and subscription bridges are unavailable", async () => {
+	it("answers no folder-picker request, and says the ChatGPT and subscription bridges are unavailable", async () => {
 		const f = boot({ setting: { address: REMOTE } });
 		await f.done;
-		await assert.rejects(async () => f.call("lh:attachment:pick", f.fromPage(), "folder"), /can't be attached when the app uses a server/);
+		assert.equal(f.handlers.has("lh:attachment:pick"), false, "with a server nothing handles the folder picker");
 		const chatgpt = (await f.call("lh:chatgpt:control", f.fromPage(), { op: "status" })) as { available: boolean };
 		assert.equal(chatgpt.available, false);
 		assert.deepEqual(await f.call("lh:subscriptions:control", f.fromPage(), { op: "status" }), []);
@@ -256,6 +256,7 @@ describe("the desktop app on this computer (nothing saved)", () => {
 		assert.deepEqual(plain(f.win().options.webPreferences.additionalArguments), ["--lh-server=local"]);
 		assert.match(f.win().loaded[0]!, /^http:\/\/127\.0\.0\.1:\d+$/);
 		assert.equal(appMenu(f).some((item) => item.label === USE_COMPUTER), false);
+		assert.equal(f.handlers.has("lh:attachment:pick"), true, "the folder picker is still answered on this computer");
 		assert.deepEqual(await f.call("lh:server:get", f.fromPage()), { mode: "local", address: null });
 		f.finish();
 	});

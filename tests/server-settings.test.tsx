@@ -73,6 +73,7 @@ test("Connect sends what was typed, untouched, and then shows that the app is re
 	assert.deepEqual(asked, ["  Learn.Example.com/chat  "], "the app validates and normalizes, not the page");
 	assert.equal(byTest("server-message")!.textContent, "Restarting…");
 	assert.equal(byTest("server-message")!.getAttribute("role"), "status");
+	assert.ok(!byTest("server-message")!.className.split(/\s+/).includes("text-error"), "and Restarting… is not an error");
 	assert.equal(input().disabled, true);
 	assert.equal((byTest("server-connect") as HTMLButtonElement).disabled, true);
 });
@@ -83,6 +84,7 @@ test("a refusal is shown as an alert and the box is usable again with the text k
 	await submit();
 	assert.equal(byTest("server-message")!.textContent, "Use an https:// address. Plain http is only for this computer.");
 	assert.equal(byTest("server-message")!.getAttribute("role"), "alert");
+	assert.ok(byTest("server-message")!.className.split(/\s+/).includes("text-error"), "an error looks like the other Settings errors");
 	assert.equal(input().disabled, false);
 	assert.equal(input().value, "http://learn.example.com");
 });

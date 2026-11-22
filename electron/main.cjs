@@ -844,11 +844,13 @@ async function main() {
 		await openWebSubscriptionBrowser(action, new URL(url).origin, { openExternal: (target) => shell.openExternal(target) });
 	});
 
-	ipcMain.handle("lh:attachment:pick", (event, mode) => {
-		// A folder on this computer means nothing to a server; uploads take over there.
-		if (serverMode === "remote") throw new Error("Folders on this computer can't be attached when the app uses a server.");
-		return pickAttachmentPath(event, mode, { BrowserWindow, dialog, trustedAppWindows, origin: new URL(url).origin });
-	});
+	// A folder on this computer means nothing to a server: with one, nothing answers this channel
+	// (the preload leaves the picker out as well) and Attach uploads the file instead.
+	if (serverMode !== "remote") {
+		ipcMain.handle("lh:attachment:pick", (event, mode) => pickAttachmentPath(event, mode, {
+			BrowserWindow, dialog, trustedAppWindows, origin: new URL(url).origin,
+		}));
+	}
 
 	// Settings → General → Server. Same sender rule as the other desktop channels.
 	const fromAppWindow = (event) => trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) && trustedSender(event, new URL(url).origin, BrowserWindow);
