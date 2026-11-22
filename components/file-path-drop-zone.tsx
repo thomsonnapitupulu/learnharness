@@ -5,11 +5,14 @@ import { FileSymlinkIcon, XIcon } from "lucide-react";
 import { directoryReferencePath, quoteFilePath } from "@/src/core";
 import { appendToPrimaryInput } from "@/components/dictation";
 import { INSERT_FILE_PATHS_EVENT } from "@/components/path-input";
+import { uploadFiles } from "@/lib/upload-client";
 
 export const BROWSER_NOTICE = "Local file paths can only be attached in the desktop app. You can paste a full path instead.";
 
 /** The content area only: the sidebar is deliberately outside this zone.
- * Existing files stay where they are; only quoted path strings enter drafts. */
+ * In the desktop app, existing files stay where they are and only quoted path
+ * strings enter drafts. In a browser a dropped file has no path the server can
+ * read, so it is uploaded and the path it is saved under enters the draft. */
 export function FilePathDropZone({ children, className, onContentRoot }: {
 	children: React.ReactNode;
 	className?: string;
@@ -23,6 +26,8 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 	const depth = useRef(0);
 	const [dragging, setDragging] = useState(false);
 	const [notice, setNotice] = useState("");
+	const sendingNow = useRef<AbortController | null>(null);
+	useEffect(() => () => sendingNow.current?.abort(), []); // leaving mid-upload stops it
 	const hasFiles = (event: React.DragEvent) => Array.from(event.dataTransfer.types).includes("Files");
 	const clearDrag = () => { depth.current = 0; setDragging(false); };
 	useEffect(() => {
@@ -39,6 +44,28 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 			window.removeEventListener("drop", preventOutsideNavigation);
 		};
 	}, []);
+	/** Where dropped paths go: the focused editor's caret, else the page's own
+	 * input. Says why not when there is neither. */
+	const place = (paths: string[]): string => {
+		const focused = document.activeElement?.closest<HTMLElement>("[data-file-path-input]");
+		if (focused && root.current?.contains(focused)) {
+			focused.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: paths }));
+			return "";
+		}
+		return appendToPrimaryInput(paths.map(quoteFilePath).join(" ")) ? "" : "Open a chat to attach file paths.";
+	};
+	/** Browser drop: upload the files (never folders), then place their server paths. */
+	const attachUploads = async (files: File[], folders: boolean) => {
+		if (files.length === 0) { setNotice(folders ? "Folders cannot be uploaded. Drop files instead." : "No files were dropped."); return; }
+		const { signal } = (sendingNow.current = new AbortController());
+		const progress = (index: number, fraction: number) => setNotice(
+			`Uploading ${files.length === 1 ? files[0]!.name : `file ${index + 1} of ${files.length}`}… ${Math.round(fraction * 100)}%`);
+		const { paths, errors } = await uploadFiles(files, { signal, onProgress: progress });
+		if (signal.aborted) return;
+		const problems = [...errors, ...(folders ? ["Folders cannot be uploaded, so only the files were attached."] : [])];
+		const refusal = paths.length > 0 ? place(paths) : "";
+		setNotice(refusal || problems.join("\n"));
+	};
 	return (
 		<main
 			ref={root}
@@ -68,10 +95,16 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 				event.stopPropagation();
 				clearDrag();
 				const resolve = window.lh?.getPathForFile;
-				if (!resolve) { setNotice(BROWSER_NOTICE); return; }
 				// Inspect only the dropped item's type, never traverse its entries.
 				// Positively known directories get a durable trailing separator.
 				const entries = Array.from(event.dataTransfer.items).filter((item) => item.kind === "file");
+				if (!resolve) {
+					const dropped = Array.from(event.dataTransfer.files);
+					const isFolder = (index: number) => { try { return entries[index]?.webkitGetAsEntry?.()?.isDirectory === true; } catch { return false; } };
+					const folders = dropped.map((_, index) => isFolder(index));
+					void attachUploads(dropped.filter((_, index) => !folders[index]), folders.includes(true));
+					return;
+				}
 				const paths: string[] = [];
 				let skipped = 0;
 				for (const [index, file] of Array.from(event.dataTransfer.files).entries()) {
@@ -89,14 +122,8 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 					setNotice("No local file paths were available. Drop existing files or folders from your computer.");
 					return;
 				}
-				const focused = document.activeElement?.closest<HTMLElement>("[data-file-path-input]");
-				if (focused && event.currentTarget.contains(focused)) {
-					focused.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: paths }));
-				} else if (!appendToPrimaryInput(paths.map(quoteFilePath).join(" "))) {
-					setNotice("Open a chat to attach file paths.");
-					return;
-				}
-				setNotice(skipped ? "Some dropped items had no available file path." : "");
+				const refusal = place(paths);
+				setNotice(refusal || (skipped ? "Some dropped items had no available file path." : ""));
 			}}
 		>
 			{children}
@@ -104,7 +131,7 @@ export function FilePathDropZone({ children, className, onContentRoot }: {
 				<div data-testid="file-path-drop-indicator" className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/85 p-6 text-center backdrop-blur-sm">
 					<div className="flex max-w-md flex-col items-center gap-3">
 						<FileSymlinkIcon className="size-8 text-primary" aria-hidden />
-						<span className="font-ui text-sm">{window.lh?.getPathForFile ? "Drop to attach file paths" : BROWSER_NOTICE}</span>
+						<span className="font-ui text-sm">{window.lh?.getPathForFile ? "Drop to attach file paths" : "Drop to attach files"}</span>
 					</div>
 				</div>
 			)}

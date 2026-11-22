@@ -8,6 +8,7 @@ import { useDictationTarget } from "../components/dictation.tsx";
 import { PathInput } from "../components/path-input.tsx";
 import { readPathInput, restorePathSelection } from "../components/path-input-dom.ts";
 import { quoteFilePath } from "../src/core/file-paths.ts";
+import { MAX_UPLOAD_BYTES } from "../lib/upload-limits.ts";
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => { await cleanup?.(); cleanup = undefined; });
@@ -31,6 +32,22 @@ async function fixture({ desktop = true, claimed = true, onContentRoot }: {
 	Object.assign(doc, { getSelection: () => selection, oninput: null });
 	win.HTMLElement.prototype.focus = function () { active = this; };
 	const resolved: File[] = [];
+	/** The browser's XMLHttpRequest, as far as lib/upload-client.ts uses it. The test plays the server. */
+	class FakeXHR {
+		upload: { onprogress: ((event: { lengthComputable: boolean; loaded: number; total: number }) => void) | null } = { onprogress: null };
+		onload: (() => void) | null = null;
+		onerror: (() => void) | null = null;
+		onabort: (() => void) | null = null;
+		responseType = "";
+		status = 0;
+		response: unknown = null;
+		url = "";
+		aborted = false;
+		open(_method: string, url: string) { this.url = url; }
+		send() { requests.push(this); }
+		abort() { this.aborted = true; this.onabort?.(); }
+	}
+	const requests: FakeXHR[] = [];
 	const backingPaths = new Map<File, string | Error>();
 	const appends: string[] = [];
 	let byteReads = 0;
@@ -49,6 +66,7 @@ async function fixture({ desktop = true, claimed = true, onContentRoot }: {
 		React, window: win, document: doc, Node: win.Node, HTMLElement: win.HTMLElement, Element: win.Element,
 		Event: win.Event, CustomEvent: win.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true,
 		fetch: () => { uploads++; throw new Error("No network expected for file drops"); },
+		XMLHttpRequest: FakeXHR,
 	})) {
 		previous.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
 		Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: next });
@@ -104,7 +122,12 @@ async function fixture({ desktop = true, claimed = true, onContentRoot }: {
 		return event;
 	}
 	return {
-		doc, editor, appends, resolved, file, transfer, event,
+		doc, editor, appends, resolved, file, transfer, event, requests,
+		async progress(index: number, loaded: number, total: number) { await act(async () => { requests[index]!.upload.onprogress?.({ lengthComputable: true, loaded, total }); }); },
+		async respond(index: number, status: number, body: unknown) {
+			await act(async () => { Object.assign(requests[index]!, { status, response: body }); requests[index]!.onload?.(); });
+		},
+		async leave() { await cleanup?.(); cleanup = undefined; },
 		get value() { return value; },
 		get status() { return doc.querySelector('[role="status"]')?.textContent ?? ""; },
 		focusEditor(offset: number) {
@@ -153,24 +176,88 @@ test("unfocused drop uses the dictation target registry, not the last focused ed
 	f.assertPathOnly();
 });
 
-test("browser drop prevents navigation, explains desktop-only local paths and never infers File.name", async () => {
+test("browser drop prevents navigation, uploads each file, and puts the paths the server saved in the draft", async () => {
 	const f = await fixture({ desktop: false });
-	const transfer = f.transfer([f.file("/not/a/backing/path.pdf")]);
+	f.focusEditor(4);
+	const transfer = f.transfer([f.file("week 3.pdf"), f.file("board.jpg")]);
 	const enter = await f.event("dragenter", transfer);
 	assert.equal(enter.defaultPrevented, true);
-	assert.match(f.doc.querySelector('[data-testid="file-path-drop-indicator"]')!.textContent!, /desktop app/);
+	assert.match(f.doc.querySelector('[data-testid="file-path-drop-indicator"]')!.textContent!, /Drop to attach files/);
 	const over = await f.event("dragover", transfer);
 	assert.equal(over.defaultPrevented, true);
 	assert.equal(transfer.dropEffect, "copy");
 	const drop = await f.event("drop", transfer);
 	assert.equal(drop.defaultPrevented, true);
-	assert.match(f.status, /Local file paths can only be attached in the desktop app/);
-	assert.match(f.status, /paste a full path instead/);
 	assert.equal(f.doc.querySelector('[data-testid="file-path-drop-indicator"]'), null);
-	assert.equal(f.value, "readthis");
+	assert.deepEqual(f.requests.map((request) => request.url), ["/api/uploads?name=week%203.pdf"], "one at a time, by File.name");
+	assert.equal(f.status, "Uploading file 1 of 2… 0%");
+	await f.progress(0, 5, 10);
+	assert.equal(f.status, "Uploading file 1 of 2… 50%");
+	await f.respond(0, 201, { path: "/srv/lh/data/uploads/up_a_000000000001/week 3.pdf" });
+	assert.equal(f.status, "Uploading file 2 of 2… 0%");
+	assert.equal(f.value, "readthis", "nothing enters the draft until they are all up");
+	await f.respond(1, 201, { path: "/srv/lh/data/uploads/up_b_000000000002/board.jpg" });
+	assert.equal(f.value, `read ${["/srv/lh/data/uploads/up_a_000000000001/week 3.pdf", "/srv/lh/data/uploads/up_b_000000000002/board.jpg"].map(quoteFilePath).join(" ")} this`);
+	assert.equal(f.status, "", "success is silent, as on the desktop");
 	assert.deepEqual(f.appends, []);
-	assert.deepEqual(f.resolved, []);
+	assert.deepEqual(f.resolved, [], "no desktop bridge, so no local path is ever asked for");
 	f.assertPathOnly();
+});
+
+test("a single browser upload names the file; with no editor focused the path goes to the page's own input", async () => {
+	const f = await fixture({ desktop: false });
+	await f.event("drop", f.transfer([f.file("notes.pdf")]));
+	assert.equal(f.status, "Uploading notes.pdf… 0%");
+	await f.respond(0, 201, { path: "/srv/lh/data/uploads/up_a_000000000001/notes.pdf" });
+	assert.deepEqual(f.appends, ["`/srv/lh/data/uploads/up_a_000000000001/notes.pdf`"]);
+	assert.equal(f.status, "");
+	f.assertPathOnly();
+});
+
+test("a browser upload that fails says why and leaves the draft alone; with nowhere to put the path it says so", async () => {
+	const f = await fixture({ desktop: false, claimed: false });
+	await f.event("drop", f.transfer([f.file("a.pdf")]));
+	await f.respond(0, 500, { error: "The file could not be saved on the server." });
+	assert.equal(f.status, "The file could not be saved on the server.");
+	assert.equal(f.value, "readthis");
+	await f.event("drop", f.transfer([f.file("b.pdf")]));
+	await f.respond(1, 201, { path: "/srv/lh/data/uploads/up_a_000000000001/b.pdf" });
+	assert.match(f.status, /Open a chat to attach file paths/);
+	assert.deepEqual(f.appends, []);
+	f.assertPathOnly();
+});
+
+test("browser drop never uploads folders: they are named in a notice, and the files beside them still go", async () => {
+	const f = await fixture({ desktop: false });
+	await f.event("drop", f.transfer([f.file("a folder")], [0]));
+	assert.equal(f.requests.length, 0);
+	assert.equal(f.status, "Folders cannot be uploaded. Drop files instead.");
+	await f.event("drop", f.transfer([f.file("a folder"), f.file("notes.pdf")], [0]));
+	assert.deepEqual(f.requests.map((request) => request.url), ["/api/uploads?name=notes.pdf"]);
+	await f.respond(0, 201, { path: "/srv/lh/data/uploads/up_a_000000000001/notes.pdf" });
+	assert.deepEqual(f.appends, ["`/srv/lh/data/uploads/up_a_000000000001/notes.pdf`"]);
+	assert.equal(f.status, "Folders cannot be uploaded, so only the files were attached.");
+	f.assertPathOnly();
+});
+
+test("browser drop refuses a file over 64 MiB without sending it", async () => {
+	const f = await fixture({ desktop: false });
+	const big = f.file("film.mov");
+	Object.defineProperty(big, "size", { value: MAX_UPLOAD_BYTES + 1 });
+	await f.event("drop", f.transfer([big]));
+	assert.equal(f.requests.length, 0);
+	assert.match(f.status, /film\.mov is larger than 64 MiB/);
+	f.assertPathOnly();
+});
+
+test("leaving the page mid-upload stops the transfer and attaches nothing", async () => {
+	const f = await fixture({ desktop: false });
+	f.focusEditor(4);
+	await f.event("drop", f.transfer([f.file("a.pdf"), f.file("b.pdf")]));
+	await f.leave();
+	assert.equal(f.requests[0]!.aborted, true);
+	assert.equal(f.requests.length, 1, "the second file never starts");
+	assert.equal(f.value, "readthis");
 });
 
 test("mixed files and directories retain one original path each in drop order; invalid paths are skipped", async () => {
@@ -246,7 +333,7 @@ test("nested enter/leave depth keeps the drop overlay until the zone is left; no
 	await f.event("dragleave", transfer);
 	assert.equal(f.doc.querySelector('[data-testid="file-path-drop-indicator"]'), null);
 	await f.event("drop", transfer);
-	assert.notEqual(f.status, "");
+	assert.equal(f.status, "Uploading notes.pdf… 0%");
 	await act(async () => { f.doc.querySelector<HTMLElement>('[aria-label="Dismiss attachment notice"]')!.click(); });
 	assert.equal(f.status, "");
 	f.assertPathOnly();

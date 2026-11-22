@@ -67,3 +67,4 @@ export { claudeCodeInstallationResponse } from "./claude-code.ts";
 export * from "./custom-provider.ts";
 export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";
 export { accessSignIn, accessSignInPage, accessSignOut, accessSignOutPage, accessSignOutAll, accessStatus, accessUnlock, accessUnlockPage } from "./access-http.ts";
+export { uploadRoute } from "./upload-http.ts";

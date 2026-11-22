@@ -30,6 +30,10 @@ it("Proxy excludes only the exact document endpoint, optional trailing slash and
 	]) assert.equal(proxyMatches(path), false, path);
 });
 
+it("Proxy excludes only the exact upload endpoint, optional trailing slash and query (Next would cut its body copy at 25 MiB)", () => {
+	for (const path of ["/api/uploads", "/api/uploads/", "/api/uploads?name=a.png", "/api/uploads/?name=a%20b.png"]) assert.equal(proxyMatches(path), false, path);
+});
+
 it("Proxy retains API roots, siblings, endpoint lookalikes and all other API routes", () => {
 	for (const path of [
 		"/api", "/api/", "/api?request=1", "/api/?request=1",
@@ -39,6 +43,10 @@ it("Proxy retains API roots, siblings, endpoint lookalikes and all other API rou
 		"/api/plugins/document-one/other/documents/markdown", "/api/plugins/documents/markdown",
 		"/api/graph/import", "/api/events", "/api/chat", "/api/settings/models", "/api/chats/scratch/markdown",
 	]) assert.equal(proxyMatches(path), true, path);
+	// The upload endpoint is exempt by exact path too; nothing near it is.
+	for (const path of ["/api/uploads/extra", "/api/uploads.json", "/api/uploadsx", "/api/upload", "/api/uploads/up_x/photo.png", "/api/plugins/uploads"]) {
+		assert.equal(proxyMatches(path), true, path);
+	}
 	// The sign-in gate covers pages and lookalike paths too; only the build's static files are left out.
 	for (const path of ["/", "/chat/new", "/apix", "/api-other/plugins/document-one/documents/markdown", "/login", "/manifest.webmanifest"]) {
 		assert.equal(proxyMatches(path), true, path);
