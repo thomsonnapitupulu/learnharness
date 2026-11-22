@@ -17,6 +17,7 @@ import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { installVisualViewportVars } from "@/lib/visual-viewport";
 import { buildSessionTree, flattenSessionTree, folderDeletionScope, placementOf, type FolderDeletionScope, type SessionTreeNode } from "@/src/core";
 import { useSourceDirectory } from "@/components/source-directory";
 import { NewFolderRow, SidebarFolderRow, SidebarFolderRule, SIDEBAR_COMPACT_ROW, sidebarNameFont, sidebarRail, sidebarRowBox, useOpenFolders, useSidebarDrop } from "@/components/sidebar-folders";
@@ -136,6 +137,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	const [phone, setPhone] = useState(false);
 	const [drawer, setDrawer] = useState(false);
 
+	// The on-screen keyboard (story 5b): the shell below is the visible part of the screen.
+	useEffect(() => installVisualViewportVars(), []);
+
 	useEffect(() => {
 		// Electron shell detection (merged chrome, 2026-09-17): keys the
 		// .lh-electron CSS (app/globals.css) that turns the header bands
@@ -232,8 +236,11 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			{/* transitions gated on mount: no slide-in flash on page load. The
 			    env() insets are zero in a browser tab; opened from the home screen
 			    (viewport-fit=cover) they keep the page clear of the notch, the
-			    rounded corners and the home indicator. */}
-			<div className={cn("flex h-dvh pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+			    rounded corners and the home indicator. With an on-screen keyboard
+			    up, lib/visual-viewport.ts sets --lh-vvh and --lh-vv-top, and the
+			    shell is the visible part of the screen: the keyboard covers the
+			    home indicator, so its padding goes too. */}
+			<div className={cn("relative top-[var(--lh-vv-top,0px)] flex h-[var(--lh-vvh,100dvh)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] [html[data-lh-keyboard]_&]:pb-0", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }

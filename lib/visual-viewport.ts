@@ -1,0 +1,67 @@
+/**
+ * The on-screen keyboard (mobile epic, story 5b). Phones do not shrink the page
+ * for the keyboard: iOS and Chrome on Android shrink the *visual* viewport
+ * (`window.visualViewport`) and leave the layout viewport alone, so whatever is
+ * anchored to the bottom of the page, the composer and the answer docks, ends
+ * up behind the keyboard.
+ *
+ * While a keyboard is up, two CSS variables on <html> say what is left:
+ *   --lh-vvh      the visible height
+ *   --lh-vv-top   how far the visible area has been panned down the page
+ * and `html[data-lh-keyboard]` is set. The app shell takes its height and its
+ * top from them (components/sidebar.tsx), so everything in it, the dock's
+ * height budget included, simply fits above the keyboard. With no keyboard the
+ * variables are unset and the shell is 100dvh at the top, as it was.
+ */
+
+/** Smaller differences are the browser's own bars, not a keyboard. */
+export const KEYBOARD_MIN_PX = 100;
+
+export interface ViewportReading {
+	/** window.innerHeight: the layout viewport, which a keyboard does not change. */
+	layoutHeight: number;
+	/** visualViewport.height, offsetTop and scale. */
+	height: number;
+	offsetTop: number;
+	scale: number;
+}
+
+/** The part of the screen a keyboard leaves visible, or null when there is no keyboard. A pinch-zoomed page also has
+ * a smaller visual viewport, for another reason, so it counts as none. */
+export function visibleArea(reading: ViewportReading): { height: number; top: number } | null {
+	if (Math.abs(reading.scale - 1) > 0.01) return null;
+	const covered = reading.layoutHeight - reading.height - reading.offsetTop;
+	if (covered < KEYBOARD_MIN_PX) return null;
+	return { height: Math.round(reading.height), top: Math.round(reading.offsetTop) };
+}
+
+/** Keeps the variables in step with the visual viewport, on a touch screen only. Returns the cleanup. */
+export function installVisualViewportVars(win: Window = window): () => void {
+	const viewport = win.visualViewport;
+	if (!viewport || typeof win.matchMedia !== "function" || !win.matchMedia("(pointer: coarse)").matches) return () => {};
+	const root = win.document.documentElement;
+	let frame = 0;
+	const clear = () => {
+		root.style.removeProperty("--lh-vvh");
+		root.style.removeProperty("--lh-vv-top");
+		root.removeAttribute("data-lh-keyboard");
+	};
+	const apply = () => {
+		frame = 0;
+		const area = visibleArea({ layoutHeight: win.innerHeight, height: viewport.height, offsetTop: viewport.offsetTop, scale: viewport.scale });
+		if (!area) return clear();
+		root.style.setProperty("--lh-vvh", `${area.height}px`);
+		root.style.setProperty("--lh-vv-top", `${area.top}px`);
+		root.setAttribute("data-lh-keyboard", "");
+	};
+	const schedule = () => { if (!frame) frame = win.requestAnimationFrame(apply); };
+	viewport.addEventListener("resize", schedule);
+	viewport.addEventListener("scroll", schedule);
+	apply();
+	return () => {
+		if (frame) win.cancelAnimationFrame(frame);
+		viewport.removeEventListener("resize", schedule);
+		viewport.removeEventListener("scroll", schedule);
+		clear();
+	};
+}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, u
 import type { ViewReaderRef, NativeQuestionViewState } from "./session-view-readers";
 import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
+import { DockDictationNote, DockMic, finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { EnterHint } from "@/components/enter-hint";
 import { enterMaySend } from "@/lib/touch-keyboard";
@@ -1191,16 +1191,18 @@ function QuestionDockForm({
 								"field-sizing-content lh-input max-h-48 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground/70",
 								// Phase-scaled prominence: teaching invites depth,
 								// probing stays quick.
-								phase === "teach" ? "min-h-[4.5rem]" : "min-h-10",
+								phase === "teach" ? "min-h-[4.5rem] phone:min-h-11" : "min-h-10 phone:min-h-11",
 							)}
 						/>
 					)}
+					<DockDictationNote className="px-2.5 pt-1" />
 					<div className="flex items-center justify-between gap-2 p-1">
-						<EnterHint compacting={compactionRunning} />
+						<EnterHint compacting={compactionRunning} className="phone:hidden" />
+						<DockMic />
 						<Button
 							type="submit"
 							disabled={!canSubmit || compactionRunning || preparing}
-							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
+							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium phone:h-12 phone:flex-1 phone:rounded-[10px] phone:text-base"
 						>
 							Submit answer
 						</Button>

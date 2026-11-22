@@ -15,6 +15,7 @@ import type { SideThreadAnchor, SideThreadOpenArgs, SideThreadState } from "./us
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { enterMaySend } from "../lib/touch-keyboard";
+import { useSidebar } from "./sidebar";
 
 /** Ask always opens the selected teaching segment's ONE conversation. Cite
  * is an independent action that inserts a chip into the main/thinking field. */
@@ -121,11 +122,11 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 				{onDragStart && <GripVertical aria-hidden="true" className="-ml-1 size-3.5 text-muted-foreground" />}
 				<MessageCircleQuestion aria-hidden="true" className="size-3.5 text-muted-foreground" />
 				<span className="flex-1 font-ui text-xs text-muted-foreground">Side question</span>
-				<Button type="button" size="icon-xs" variant="ghost" aria-label={state.mode === "popover" ? "Dock side conversation" : "Float side conversation"}
+				<Button type="button" size="icon-xs" variant="ghost" aria-label={state.mode === "popover" ? "Dock side conversation" : "Float side conversation"} className="phone:hidden"
 					title={state.mode === "popover" ? "Pin to side" : "Unpin to float"} onClick={state.mode === "popover" ? onExpand : onFloat}>
 					{state.mode === "popover" ? <Pin aria-hidden="true" /> : <PinOff aria-hidden="true" />}
 				</Button>
-				<Button type="button" size="icon-xs" variant="ghost" aria-label="Close side conversation" title="Close" onClick={onClose}><X aria-hidden="true" /></Button>
+				<Button type="button" size="icon-xs" variant="ghost" aria-label="Close side conversation" title="Close" className="phone:size-11" onClick={onClose}><X aria-hidden="true" /></Button>
 			</div>
 			<div ref={scrollRef} data-side-scroll="" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto font-prose">
 				{state.messages.map((message) => (
@@ -152,26 +153,26 @@ export function SideThreadBody({ state, chatId, draft, readDraft, dictation, onD
 				{dictation?.error && <p role="alert" className="font-ui text-xs text-destructive">{dictation.error}</p>}
 				<div className="flex items-end gap-1.5">
 					<div data-testid="side-composer-surface" className="relative min-w-0 flex-1 rounded-[10px] border bg-card focus-within:border-primary/50">
-					<Textarea ref={inputRef} aria-label="Side question" data-testid="side-thread-input" className="min-h-9 resize-none border-0 bg-transparent pr-14 font-prose text-sm shadow-none focus-visible:ring-0 dark:bg-transparent" rows={1}
+					<Textarea ref={inputRef} aria-label="Side question" data-testid="side-thread-input" className="min-h-9 resize-none border-0 bg-transparent pr-14 font-prose text-sm shadow-none focus-visible:ring-0 phone:min-h-11 phone:pr-16 phone:text-[16px] dark:bg-transparent" rows={1}
 						value={question} maxLength={SIDE_QUESTION_MAX_CHARS} placeholder={sideThreadPlaceholder(state)} onChange={(event) => changeDraft(event.target.value)}
 						onKeyDown={(event) => {
 							if (event.nativeEvent.isComposing || !isInteractionScopeEligible(inputRef.current, controller)) return;
 							if (event.key === "Enter" && (!event.shiftKey || event.metaKey || event.ctrlKey) && enterMaySend(event)) { event.preventDefault(); event.stopPropagation(); void submit(); }
 							else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
 						}} />
-					{dictation && <div className="absolute right-1 bottom-1 flex h-7 items-center gap-1">
+					{dictation && <div className="absolute right-1 bottom-1 flex h-7 items-center gap-1 phone:h-9">
 						{dictation.phase === "recording" && <SideInputMeter levelRef={dictation.levelRef} />}
 						<button type="button" data-testid="side-dictation-toggle"
 						aria-label={dictation.active ? "Stop side dictation" : "Start side dictation"} aria-pressed={dictation.active}
 						title={dictation.error ?? (dictation.active ? "Stop side dictation" : "Dictate side question")}
 						disabled={dictation.blocked || dictation.phase === "stopping"} onClick={dictation.toggle}
-						className={`flex size-7 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${dictation.active ? "bg-error/15 text-error" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}>
+						className={`flex size-7 phone:size-9 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${dictation.active ? "bg-error/15 text-error" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}>
 						<Mic aria-hidden="true" className="size-3.5" />
 					</button></div>}
 					</div>
 					<button type="button" aria-label={state.answering ? "Stop side answer" : "Send side question"}
 						disabled={!state.answering && !question.trim() && !dictation?.active} onClick={state.answering ? onStop : () => void submit()}
-						className={`flex size-9 shrink-0 items-center justify-center rounded-[10px] transition-colors ${state.answering ? "bg-secondary text-foreground hover:bg-accent" : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"}`}>
+						className={`flex size-9 phone:size-11 shrink-0 items-center justify-center rounded-[10px] transition-colors ${state.answering ? "bg-secondary text-foreground hover:bg-accent" : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"}`}>
 						{state.answering ? <Square aria-hidden="true" className="size-4" /> : <CornerDownLeft aria-hidden="true" className="size-5" />}
 					</button>
 				</div>
@@ -217,7 +218,7 @@ const RESIZE_HANDLES: { edge: SideThreadResizeEdge; className: string }[] = [
  * borders/corners resize the floating window without changing the dock.
  * Render as native session content, not a body portal: whole-session surfaces
  * must cover/inactivate this companion without closing it or losing its draft. */
-export function SideThreadPopover({ state, chatId, composer, ...handlers }: { state: SideThreadState; chatId: string; composer: () => HTMLElement | null } & SideThreadHandlers) {
+function FloatingSideThread({ state, chatId, composer, ...handlers }: { state: SideThreadState; chatId: string; composer: () => HTMLElement | null } & SideThreadHandlers) {
 	const controller = useOptionalInteractionLayers();
 	const boxRef = useRef<HTMLDivElement>(null);
 	const [placement, setPlacement] = useState<SideThreadPlacement | null>(null);
@@ -284,6 +285,30 @@ export function SideThreadPopover({ state, chatId, composer, ...handlers }: { st
 			onPointerDown={(event) => startResize(event, edge)} />)}
 	</div>;
 }
-export function SideThreadPanel({ children }: { children: ReactNode }) {
+
+/** On a phone the side question is a bottom sheet over the lesson (story 5b): the lower 70% of what
+ * the screen shows, so above the keyboard when it is up (lib/visual-viewport.ts). The floating window's
+ * placement, dragging and resizing, and the docked panel, make no sense at that width and are not
+ * used there. A tap on the dimmed lesson closes it; the draft is kept like any close. */
+function SideThreadSheet({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+	return (
+		<div data-testid="side-thread-sheet-frame" className="lh-no-drag fixed inset-x-0 z-60 flex flex-col justify-end" style={{ top: "var(--lh-vv-top, 0px)", height: "var(--lh-vvh, 100dvh)" }}>
+			<div aria-hidden="true" data-testid="side-thread-backdrop" className="absolute inset-0 bg-black/40" onClick={onClose} />
+			<div role="dialog" aria-label="Side question" data-testid="side-thread-sheet"
+				className="relative flex h-[70%] min-h-0 flex-col rounded-t-2xl border-t bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-sm shadow-2xl [html[data-lh-keyboard]_&]:pb-3">
+				{children}
+			</div>
+		</div>
+	);
+}
+
+export function SideThreadPopover({ state, chatId, composer, ...handlers }: { state: SideThreadState; chatId: string; composer: () => HTMLElement | null } & SideThreadHandlers) {
+	const { phone } = useSidebar();
+	if (!phone) return <FloatingSideThread state={state} chatId={chatId} composer={composer} {...handlers} />;
+	return <SideThreadSheet onClose={handlers.onClose}><SideThreadBody key={state.threadId} state={state} chatId={chatId} {...handlers} /></SideThreadSheet>;
+}
+export function SideThreadPanel({ children, onClose }: { children: ReactNode; onClose?: () => void }) {
+	const { phone } = useSidebar();
+	if (phone && onClose) return <SideThreadSheet onClose={onClose}>{children}</SideThreadSheet>;
 	return <aside aria-label="Side question" data-testid="side-thread-panel" className="flex w-[22rem] shrink-0 flex-col border-l border-border bg-background p-3">{children}</aside>;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
@@ -809,6 +809,22 @@ export function DictationMic({ dictation, disabled = false }: { dictation: Dicta
 export function DictationNote({ dictation, className }: { dictation: Dictation; className?: string }) {
 	if (!dictation.error) return null;
 	return <p role="alert" className={cn("hidden text-xs text-destructive phone:block", className)}>{dictation.error}</p>;
+}
+
+/** The answer docks are mounted deep inside the session, away from its dictation:
+ * the session provides it here, and a dock's footer shows the phone's mic from it. */
+export const DockDictationContext = createContext<{ dictation: Dictation; disabled: boolean } | null>(null);
+
+/** The microphone in a dock's footer, beside Submit: phones only (DictationMic hides itself elsewhere). */
+export function DockMic() {
+	const shared = useContext(DockDictationContext);
+	return shared ? <DictationMic dictation={shared.dictation} disabled={shared.disabled} /> : null;
+}
+
+/** The reason dictation failed, above a dock's footer, on a phone only. */
+export function DockDictationNote({ className }: { className?: string }) {
+	const shared = useContext(DockDictationContext);
+	return shared ? <DictationNote dictation={shared.dictation} className={className} /> : null;
 }
 
 export function DictationBar({ dictation, disabled = false }: { dictation: Dictation; disabled?: boolean }) {

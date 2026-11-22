@@ -5,7 +5,7 @@ import type { ViewReaderRef } from "./session-view-readers";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
-import { joinDictation, useDictationTarget } from "@/components/dictation";
+import { DockDictationNote, DockMic, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { EnterHint } from "@/components/enter-hint";
 import { enterMaySend } from "@/lib/touch-keyboard";
@@ -192,21 +192,23 @@ export function PracticeDock({ viewReader, problemCallId, input, expanded, onExp
 					}}
 					placeholder="Work here, think out loud."
 					className={cn(
-						"field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
+						"field-sizing-content lh-input max-h-64 min-h-16 phone:min-h-11 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
 					)}
 				/>
 				{/* The submit row (owner round 4, 2026-10-05): IDENTICAL to the
 				    question dock's — hint left, the SAME Button (h-9, px-3.5),
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
 				    field 10 − p-1 (4) = button 6. */}
+				<DockDictationNote className="px-2.5 pt-1" />
 				<div className="flex items-center justify-between gap-2 p-1">
-					<EnterHint compacting={compactionRunning} />
+					<EnterHint compacting={compactionRunning} className="phone:hidden" />
+					<DockMic />
 					<Button
 						type="button"
 						data-testid="practice-send"
 						disabled={(customInput ? !customInput.ready : (!thinking.trim() && !hasPendingInput)) || compactionRunning || preparing}
 						onClick={() => submit()}
-						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
+						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium phone:h-12 phone:flex-1 phone:rounded-[10px] phone:text-base"
 					>
 						{customInput ? "Submit" : "Submit thinking"}
 					</Button>
