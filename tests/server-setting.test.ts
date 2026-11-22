@@ -70,6 +70,31 @@ describe("typing a server address", () => {
 		assert.equal(normalizeServerAddress("learn.example.com:").ok, true);
 	});
 
+	it("a host name nobody could have meant is refused: what is left of a mistyped scheme, a name with no dot, an empty or over-long part", () => {
+		for (const typed of [
+			"https//learn.example.com", "https:", "https://https", "learn", "https://learn", "learn.example.com..", ".example.com", "learn..example.com",
+			"-learn.example.com", "learn-.example.com", "le_arn.example.com", `${"a".repeat(64)}.example.com`, `${"ab.".repeat(90)}com`,
+		]) {
+			const result = normalizeServerAddress(typed);
+			assert.equal(result.ok, false, typed);
+			assert.match((result as { error: string }).error, /server's address/, typed);
+		}
+	});
+
+	it("every real shape of host name is still accepted: a trailing dot, an address, punycode, hyphens, a 63-character part", () => {
+		for (const [typed, origin] of [
+			["learn.example.com.", "https://learn.example.com."],
+			["203.0.113.5", "https://203.0.113.5"],
+			["https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"],
+			["xn--e1afmkfd.example.com", "https://xn--e1afmkfd.example.com"],
+			["my-learn-server.example.co.uk", "https://my-learn-server.example.co.uk"],
+			["1.example.com", "https://1.example.com"],
+			[`${"a".repeat(63)}.example.com`, `https://${"a".repeat(63)}.example.com`],
+			["localhost", "http://localhost"],
+			["[::1]:3000", "http://[::1]:3000"],
+		] as const) assert.deepEqual(normalizeServerAddress(typed), { ok: true, origin }, typed);
+	});
+
 	it("refuses spaces, line breaks and a port that cannot be used, instead of quietly changing them", () => {
 		for (const typed of ["learn\nexample.com", "learn.example.com\tx", "learn example.com", "learn.example.com:0", "https://learn.example.com:0", "localhost:0"]) {
 			assert.equal(normalizeServerAddress(typed).ok, false, JSON.stringify(typed));
@@ -145,6 +170,22 @@ describe("the saved server", () => {
 		assert.throws(() => writeServerSetting(dir, ""), /address/);
 		assert.equal(readServerSetting(dir).origin, "https://learn.example.com");
 		assert.deepEqual(readdirSync(dir), [FILE]);
+		cleanup(dir);
+	});
+
+	it("a file that starts with a byte-order mark (Windows Notepad adds one) is still read", () => {
+		const dir = scratch();
+		writeFileSync(join(dir, FILE), `\uFEFF${JSON.stringify({ address: "https://learn.example.com" })}\n`);
+		assert.deepEqual(readServerSetting(dir), { origin: "https://learn.example.com", ignored: null });
+		cleanup(dir);
+	});
+
+	it("an address in the file that is not a real host name is ignored like any other unusable one", () => {
+		const dir = scratch();
+		writeFileSync(join(dir, FILE), JSON.stringify({ address: "https://https" }));
+		const read = readServerSetting(dir);
+		assert.equal(read.origin, null);
+		assert.match(read.ignored ?? "", /server's address/);
 		cleanup(dir);
 	});
 

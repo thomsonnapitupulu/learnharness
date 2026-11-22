@@ -19,6 +19,15 @@ const FILE = "server.json";
 const MODE_ARGUMENT = "--lh-server=";
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+/** A host name a person could really have typed: letters, digits and hyphens in dot-separated labels of 1 to 63, at most
+ *  253 in all, with at least one dot (a bare "https" or "learn" is a slip, and a server on the internet has a dotted name).
+ *  This computer's names and address literals are fine as they are. */
+function plausibleHost(hostname) {
+	if (LOOPBACK.has(hostname) || hostname.startsWith("[")) return true;
+	const name = hostname.endsWith(".") ? hostname.slice(0, -1) : hostname;
+	return name.length <= 253 && name.includes(".") && name.split(".").every((label) => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i.test(label));
+}
+
 /** What a person types in the Server box, as the one origin the app will open.
  *  https is required; plain http only for this computer (for trying things out).
  *  The path, query and fragment are dropped: the app always starts at the root. */
@@ -37,6 +46,7 @@ function normalizeServerAddress(input) {
 		return { ok: false, error: "That doesn't look like a web address." };
 	}
 	if (url.port === "0") return { ok: false, error: "That port number is not valid." };
+	if (!plausibleHost(url.hostname)) return { ok: false, error: "That doesn't look like a server's address. Use the whole name, like learn.example.com." };
 	// "localhost:3000" with no scheme means this computer's plain-http server.
 	if (!scheme && LOOPBACK.has(url.hostname)) url.protocol = "http:";
 	if (url.username || url.password) return { ok: false, error: "Leave the user name and password out of the address." };
@@ -49,7 +59,7 @@ function normalizeServerAddress(input) {
 function readServerSetting(dir, io = fs) {
 	let text;
 	try {
-		text = io.readFileSync(path.join(dir, FILE), "utf8");
+		text = io.readFileSync(path.join(dir, FILE), "utf8").replace(/^\uFEFF/, ""); // Windows Notepad adds a byte-order mark
 	} catch (error) {
 		return { origin: null, ignored: error?.code === "ENOENT" ? null : `could not read ${FILE}` };
 	}

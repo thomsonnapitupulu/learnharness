@@ -21,6 +21,7 @@ type Win = EventEmitter & { webContents: Contents; loaded: string[]; options: { 
 type Prompt = { message: string; buttons: string[]; defaultId: number };
 type MenuItem = { label?: string; click?: () => void; submenu?: MenuItem[] };
 type Handler = (event: unknown, ...args: unknown[]) => unknown;
+type ProbeOptions = { ready?: (statusCode: number) => boolean; label?: string; timeoutMs?: number };
 type HeaderHook = (details: unknown, callback: (result: { requestHeaders: Record<string, string> }) => void) => void;
 
 function tempDir(): string {
@@ -39,7 +40,7 @@ const plain = <T,>(value: T): T => (value === undefined ? value : (JSON.parse(JS
 function boot(options: { setting?: unknown; env?: Record<string, string>; probes?: (Error | null)[]; answers?: number[]; failSave?: boolean } = {}) {
 	const userData = tempDir();
 	if (options.setting !== undefined) writeFileSync(join(userData, "server.json"), typeof options.setting === "string" ? options.setting : JSON.stringify(options.setting));
-	const windows: Win[] = [], logs: string[] = [], probes: { url: string }[] = [], dialogs: unknown[][] = [], errorBoxes: unknown[][] = [];
+	const windows: Win[] = [], logs: string[] = [], probes: { url: string }[] = [], probeOptions: ProbeOptions[] = [], dialogs: unknown[][] = [], errorBoxes: unknown[][] = [];
 	const spawned: unknown[][] = [], handlers = new Map<string, Handler>();
 	const counts = { quit: 0, relaunch: 0, exits: 0, chatgpt: 0, subscriptions: 0 };
 	let headerHook: HeaderHook | null = null, menu: MenuItem[] = [];
@@ -98,7 +99,7 @@ function boot(options: { setting?: unknown; env?: Record<string, string>; probes
 					const real = mainRequire(id);
 					return { ...real, writeServerSetting: (...args: unknown[]) => { if (saveFails) throw Object.assign(new Error("EROFS: read-only file system"), { code: "EROFS" }); return real.writeServerSetting(...args); } };
 				}
-				case "./dev-server-readiness.cjs": return { waitForDevServer: async (url: string) => { probes.push({ url }); const failure = probeResults.shift(); if (failure) throw failure; } };
+				case "./dev-server-readiness.cjs": return { waitForDevServer: async (url: string, probe?: ProbeOptions) => { probes.push({ url }); probeOptions.push(probe ?? {}); const failure = probeResults.shift(); if (failure) throw failure; } };
 				default: return mainRequire(id);
 			}
 		},
@@ -112,7 +113,7 @@ function boot(options: { setting?: unknown; env?: Record<string, string>; probes
 
 	const win = () => windows[0]!;
 	return {
-		userData, windows, logs, probes, dialogs, errorBoxes, spawned, counts, handlers, done, win,
+		userData, windows, logs, probes, probeOptions, dialogs, errorBoxes, spawned, counts, handlers, done, win,
 		menu: () => menu,
 		headerHook: () => headerHook!,
 		failSaves: (on = true) => { saveFails = on; },
@@ -146,6 +147,17 @@ describe("the desktop app with a server saved in Settings", () => {
 		assert.equal(f.counts.chatgpt, 0);
 		assert.equal(f.counts.subscriptions, 0);
 		assert.ok(appMenu(f).some((item) => item.label === USE_COMPUTER), "the way back is in the app menu");
+		f.finish();
+	});
+
+	it("waits for the server with the rule that an answer below 500 is up and a proxy's 502, 503 or 504 is down", async () => {
+		const f = boot({ setting: { address: REMOTE } });
+		await f.done;
+		const probe = f.probeOptions[0]!;
+		assert.equal(probe.label, "Server");
+		assert.equal(probe.timeoutMs, 10000, "it does not wait the 30 seconds the development shell does");
+		for (const status of [200, 204, 302, 401, 403, 404]) assert.equal(probe.ready!(status), true, `${status} opens the window (the page can say what is wrong)`);
+		for (const status of [500, 502, 503, 504]) assert.equal(probe.ready!(status), false, `${status} is the server being down`);
 		f.finish();
 	});
 
@@ -214,6 +226,7 @@ describe("the desktop app with a server saved in Settings", () => {
 		await settle();
 		assert.equal(f.saved(), null, "the address is gone");
 		assert.deepEqual([f.counts.relaunch, f.counts.quit], [1, 1]);
+		assert.ok(f.logs.some((line) => /server choice saved: this computer$/.test(line)), "the change is in the log");
 		f.finish();
 	});
 
@@ -227,6 +240,14 @@ describe("the desktop app with a server saved in Settings", () => {
 		assert.equal(f.saved(), null);
 		assert.deepEqual([f.counts.relaunch, f.counts.quit], [1, 1]);
 		assert.ok(f.logs.some((line) => /server not reachable: did not respond/.test(line)));
+		f.finish();
+	});
+
+	it("logs why the server did not answer, with the last answer it gave", async () => {
+		const down = new Error("Server https://learn.example.com did not respond within 10000ms", { cause: new Error("answered 502") });
+		const f = boot({ setting: { address: REMOTE }, probes: [down], answers: [2] });
+		await f.done;
+		assert.ok(f.logs.some((line) => /server not reachable: Server https:\/\/learn\.example\.com did not respond within 10000ms \(answered 502\)$/.test(line)), f.logs.join("\n"));
 		f.finish();
 	});
 
@@ -338,6 +359,7 @@ describe("the desktop app on this computer (nothing saved)", () => {
 		await settle();
 		assert.equal(f.saved(), REMOTE);
 		assert.deepEqual([f.counts.relaunch, f.counts.quit], [1, 1]);
+		assert.ok(f.logs.some((line) => /server choice saved: https:\/\/learn\.example\.com$/.test(line)), "the change is in the log");
 		f.finish();
 	});
 
@@ -371,6 +393,8 @@ describe("the development shell", () => {
 		const f = boot({ setting: { address: REMOTE }, env: { LH_DEV_URL: "http://localhost:3000" } });
 		await f.done;
 		assert.deepEqual(f.probes, [{ url: "http://localhost:3000" }]);
+		assert.equal(f.probeOptions[0]!.ready, undefined, "an error page from the development server stays visible: no rule applies");
+		assert.equal(f.probeOptions[0]!.label, undefined);
 		assert.deepEqual(f.win().loaded, ["http://localhost:3000"]);
 		assert.deepEqual(plain(f.win().options.webPreferences.additionalArguments), ["--lh-web-subscriptions"]);
 		assert.deepEqual(await f.call("lh:server:get", f.fromPage()), { mode: "dev", address: null });

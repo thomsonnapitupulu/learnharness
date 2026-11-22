@@ -64,6 +64,7 @@ test("on this computer it says so and offers an address box with Connect", async
 	assert.equal(input().getAttribute("placeholder"), "learn.example.com");
 	assert.equal(byTest("server-connect")!.textContent!.trim(), "Connect");
 	assert.equal(byTest("server-use-computer"), null);
+	assert.equal(byTest("server-origin"), null, "no address line on this computer");
 });
 
 test("Connect sends what was typed, untouched, and then shows that the app is restarting", async () => {
@@ -112,7 +113,9 @@ test("a request that fails outright says so instead of hanging", async () => {
 
 test("with a server it names it and offers only the way back to this computer", async () => {
 	const asked = await mount({ mode: "remote", address: "https://learn.example.com" });
-	assert.match(byTest("server-state")!.textContent!, /Connected to https:\/\/learn\.example\.com\. Your sessions and notes are stored there\./);
+	assert.equal(byTest("server-state")!.textContent, "Using the server at");
+	assert.equal(byTest("server-origin")!.textContent, "https://learn.example.com", "the address alone on its line, with no full stop after it");
+	assert.match(host!.textContent!, /Your sessions and notes are stored there\./);
 	assert.equal(document.querySelector("input"), null);
 	await act(async () => byTest("server-use-computer")!.click());
 	assert.deepEqual(asked, [null]);

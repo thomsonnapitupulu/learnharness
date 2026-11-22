@@ -444,6 +444,7 @@ function createWindow(url, beforeLoad) {
 function saveServerChoice(next) {
 	try {
 		writeServerSetting(app.getPath("userData"), next);
+		log(`server choice saved: ${next ?? "this computer"}`);
 		return { ok: true };
 	} catch (error) {
 		log(`server setting not saved: ${error?.message ?? error}`);
@@ -497,10 +498,12 @@ async function serverAnswers(url) {
 	const { waitForDevServer } = require("./dev-server-readiness.cjs");
 	for (;;) {
 		try {
-			await waitForDevServer(url, { timeoutMs: 10000 });
+			// A proxy in front of a stopped app answers 502, 503 or 504: that is "down", not "up". Anything else
+			// (the sign-in page, the "no password yet" 403) opens, because the window can show what it says.
+			await waitForDevServer(url, { timeoutMs: 10000, ready: (status) => status < 500, label: "Server" });
 			return true;
 		} catch (error) {
-			log(`server not reachable: ${error?.message ?? error}`);
+			log(`server not reachable: ${error?.message ?? error}${error?.cause ? ` (${error.cause.message ?? error.cause})` : ""}`);
 			const { response } = await dialog.showMessageBox(unreachablePrompt(url, PRODUCT_NAME));
 			if (response === 0) continue;
 			if (response === 1) {

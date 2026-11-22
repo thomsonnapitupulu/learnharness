@@ -45,9 +45,12 @@ export function ServerSettings() {
 			testid="row-server"
 			hint={
 				<>
-					<span className="block [overflow-wrap:anywhere]" data-testid="server-state">
-						{remote ? `Connected to ${state.address}. Your sessions and notes are stored there.` : "Using this computer. Your sessions and notes are stored here."}
+					<span className="block" data-testid="server-state">
+						{remote ? "Using the server at" : "Using this computer. Your sessions and notes are stored here."}
 					</span>
+					{/* On its own line and with nothing after it: a full stop next to an address reads as part of it, and a line selects cleanly to copy. */}
+					{remote && <span className="block select-all text-foreground [overflow-wrap:anywhere]" data-testid="server-origin">{state.address}</span>}
+					{remote && <span className="block">Your sessions and notes are stored there.</span>}
 					{message && <span id="lh-server-message" className={message.error ? "block text-error" : "block"} role={message.error ? "alert" : "status"} data-testid="server-message">{message.text}</span>}
 				</>
 			}
