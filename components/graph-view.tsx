@@ -852,7 +852,7 @@ export function GraphChromeRow({
 	return (
 		<>
 			{!isEmpty && (
-				<div className="graph-chrome-fade-in w-56 min-w-0 shrink rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
+				<div className="graph-chrome-fade-in w-56 min-w-0 shrink rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur phone:w-auto phone:flex-1">
 					<Hint
 						// ⌘F focuses node search (surface-scoped registry action).
 						label="Search nodes"
@@ -888,7 +888,7 @@ export function GraphChromeRow({
 							className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
 						>
 							<ListTreeIcon className="size-3" />
-							Chains
+							<span className="phone:sr-only">Chains</span>
 						</button>
 					</Hint>
 				</div>
@@ -1609,13 +1609,15 @@ export function GraphView({
 			    against the full-bleed parent) — the row NEVER wraps (owner
 			    rejected the two-row fold); in narrow windows the search is
 			    the flexible element and shrinks instead. */}
-			<div className="lh-no-drag lh-wco-floating absolute right-2 top-2 z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2">
+			{/* On a phone the row starts beside the menu button — and beside the folder
+			    filter that the home header holds after it, when there is one. */}
+			<div className={`lh-no-drag lh-wco-floating absolute right-2 top-2 z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2 phone:max-w-none ${folderFilterSlot && !isEmpty && organization ? "phone:left-[7.5rem]" : "phone:left-14"}`}>
 			{/* z-20 (2026-09-20): the row paints above the cost number below
 			    it — without this, the later-in-DOM cost control layered over
 			    the settings/coverage dropdowns (owner report), still hoverable
 			    and clickable on top of them. The row is a stacking context, so
 			    its open dropdowns cover the number; clicks land on the panel. */}
-			<div className="relative z-20 flex min-w-0 items-start gap-2">
+			<div className="relative z-20 flex min-w-0 items-start gap-2 phone:w-full">
 				{/* The actions row (empty-graph chrome wave, owner 2026-09-25):
 				    Import Notes always — the empty graph's entry point; search +
 				    settings only when nodes exist, fading in on their mount. */}

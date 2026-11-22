@@ -38,6 +38,17 @@ import { browserHostAllowed, browserOnlyMode, requestProtocol } from "./desktop-
  * self-contained, so nothing of the app loads before sign-in. */
 export const PUBLIC_PATHS: readonly string[] = ["/login", "/logout", "/unlock"];
 
+/** Also open without a session: what "Add to Home Screen" fetches. Browsers ask
+ * for the manifest without cookies, and a phone fetches the home-screen icon
+ * outside the page. Nothing here is private: the app's name and its icon. */
+export const PUBLIC_FILES: readonly string[] = [
+	"/manifest.webmanifest",
+	"/icons/icon-192.png",
+	"/icons/icon-512.png",
+	"/icons/icon-maskable-512.png",
+	"/icons/apple-touch-icon.png",
+];
+
 export interface GateOptions {
 	env?: Record<string, string | undefined>;
 	now?: number;
@@ -132,7 +143,11 @@ export function accessGate(request: Request, { env = process.env, now = Date.now
 	}
 
 	const url = new URL(request.url);
-	if (PUBLIC_PATHS.includes(url.pathname)) return {};
+	// The files are read-only: only a GET or HEAD for one skips the sign-in, so
+	// a POST, PUT or OPTIONS aimed at an icon is answered like any other
+	// request with no session, not passed on to the static file handler.
+	const publicFile = (request.method === "GET" || request.method === "HEAD") && PUBLIC_FILES.includes(url.pathname);
+	if (PUBLIC_PATHS.includes(url.pathname) || publicFile) return {};
 
 	const secure = overHttps(request);
 	const session = readSession(state.sessionKey, cookieValue(request.headers.get("cookie"), sessionCookieName(secure)), now);

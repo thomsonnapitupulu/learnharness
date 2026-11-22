@@ -11,6 +11,7 @@
  *
  * Mechanics baked in (the chat-session bar's proven pattern):
  * - h-15 (60px) — matches the sidebar's wordmark band, one border line.
+ *   On a phone (below md) it is 48px plus the notch inset, titles 20px.
  * - lh-drag — the window-drag band. NATIVE interactive children
  *   (button/input/a/…) carve out AUTOMATICALLY via the globals.css auto
  *   carve-out rule (owner standardization ruling, 2026-09-29 night) —
@@ -82,7 +83,7 @@ export function TopBar({
 		<header
 			ref={header}
 			onMouseDown={onMouseDown}
-			className={`${drag ? "lh-drag " : ""}${sidebarToggle ? "" : "lh-native-window-clearance "}lh-wco-gutter flex h-15 select-none items-center gap-3 border-b border-border px-3`}
+			className={`${drag ? "lh-drag " : ""}${sidebarToggle ? "" : "lh-native-window-clearance "}lh-wco-gutter flex h-15 select-none items-center gap-3 border-b border-border px-3 phone:h-[calc(3rem+env(safe-area-inset-top))] phone:pt-[env(safe-area-inset-top)]`}
 		>
 			{sidebarToggle && <SidebarToggle />}
 			{children}

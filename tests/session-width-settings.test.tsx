@@ -86,7 +86,7 @@ it("inline code and inline math never wrap on the session page; a span wider tha
 	// Display math keeps its own sideways scroller; only inline math is scoped.
 	assert.match(css, /\.katex-display \{\s*overflow-x: auto;/);
 	const chat = readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
-	assert.match(chat, /<div data-session-surface="" className="flex h-dvh">/);
+	assert.match(chat, /<div data-session-surface="" className="flex h-full">/);
 });
 
 it("labels: px at 16px per rem, or Full", () => {

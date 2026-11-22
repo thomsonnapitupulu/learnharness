@@ -134,7 +134,7 @@ export function GraphFolderFilterControl({ organization, listed, selected, onCha
 				>
 					<FunnelIcon aria-hidden="true" className={cn("size-4 shrink-0", activeCount > 0 && "text-primary")} />
 					{soleName !== null
-						? <span data-testid="graph-folder-filter-name" className="max-w-40 truncate text-xs">{soleName}</span>
+						? <span data-testid="graph-folder-filter-name" className="max-w-40 truncate text-xs phone:hidden">{soleName}</span>
 						: activeCount > 0 && <span className="text-xs tabular-nums">{activeCount}</span>}
 				</button>
 			</Hint>
