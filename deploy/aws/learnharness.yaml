@@ -1,0 +1,437 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  LearnHarness for one person on one EC2 server (US East, N. Virginia): Caddy gives it HTTPS, the data lives on its own
+  encrypted disk with daily snapshots, and the site name, mail signing and unlock email are set up in an existing
+  Route 53 zone. Guide: docs/mobile/hosting-guide.md in the repository.
+
+# How to use it (details in docs/mobile/hosting-guide.md):
+#   aws cloudformation create-stack --region us-east-1 --stack-name learnharness --capabilities CAPABILITY_IAM \
+#     --on-failure DO_NOTHING --template-body file://deploy/aws/learnharness.yaml \
+#     --parameters ParameterKey=HostedZoneId,ParameterValue=<your hosted zone id> ParameterKey=OwnerEmail,ParameterValue=<your email>
+# Creating the stack takes about 15 minutes: most of that is the server installing and building the app.
+# --on-failure DO_NOTHING keeps what was built if something fails, so the install log can be read on the server.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: Your site }
+        Parameters: [DomainName, HostedZoneId, OwnerEmail, CreateOwnerEmailIdentity]
+      - Label: { default: The code }
+        Parameters: [RepoUrl, RepoBranch]
+      - Label: { default: Size and cost }
+        Parameters: [InstanceType, RootVolumeGiB, DataVolumeGiB, DataSnapshotId, MonthlyBudgetUSD]
+      - Label: { default: Advanced }
+        Parameters: [UbuntuAmiParameter]
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: learn.heythomson.com
+    AllowedPattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    ConstraintDescription: A lower-case site name such as learn.example.com.
+    Description: The site's address. Its parent domain is the hosted zone below.
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: >-
+      The existing Route 53 hosted zone of the parent domain (heythomson.com). Only the site's own records are added
+      to it: the address record and three mail-signing (DKIM) records.
+  OwnerEmail:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+    ConstraintDescription: One plain email address (letters, digits and . _ % + - before the @).
+    Description: >-
+      Where the sign-in unlock emails and the budget warnings go. AWS emails this address a verification link when the
+      stack is created: click it.
+  CreateOwnerEmailIdentity:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Say false only if this address is already a verified identity in Amazon SES in this region (creating it twice
+      fails).
+  RepoUrl:
+    Type: String
+    Default: https://github.com/thomsonnapitupulu/learnharness.git
+    AllowedPattern: '^https://[A-Za-z0-9._/-]+$'
+    ConstraintDescription: An https address of a public Git repository.
+    Description: The repository the server installs LearnHarness from. It must be public.
+  RepoBranch:
+    Type: String
+    Default: claude/mobile-epic
+    AllowedPattern: '^[A-Za-z0-9._/-]+$'
+    ConstraintDescription: A branch name.
+    Description: >-
+      The branch to install and to update from later. Use main once the mobile work has been merged into it.
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.medium, t3.large]
+    Description: t3.medium (2 vCPU, 4 GiB) is enough for one person.
+  RootVolumeGiB:
+    Type: Number
+    Default: 20
+    MinValue: 16
+    MaxValue: 200
+    Description: Size of the system disk.
+  DataVolumeGiB:
+    Type: Number
+    Default: 20
+    MinValue: 10
+    MaxValue: 2000
+    Description: Size of the data disk (sessions, notes, uploads, API keys). Snapshots are taken of this disk.
+  DataSnapshotId:
+    Type: String
+    Default: ""
+    AllowedPattern: '^(snap-[0-9a-f]+)?$'
+    ConstraintDescription: Empty, or a snapshot id such as snap-0123456789abcdef0.
+    Description: >-
+      Leave empty for a new, empty data disk. To bring back an earlier server's data, give the snapshot of its data
+      disk (EC2 console, Snapshots). The data disk must be at least as big as the snapshot.
+  MonthlyBudgetUSD:
+    Type: Number
+    Default: 60
+    MinValue: 5
+    Description: A warning email is sent at 80% of this amount spent in a month, and when 100% is forecast. It watches the whole account.
+  UbuntuAmiParameter:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/noble/stable/current/amd64/hvm/ebs-gp3/ami-id
+    Description: Canonical's name for the newest Ubuntu 24.04 image. Leave it.
+
+Conditions:
+  CreateOwnerIdentity: !Equals [!Ref CreateOwnerEmailIdentity, "true"]
+  RestoreFromSnapshot: !Not [!Equals [!Ref DataSnapshotId, ""]]
+
+Resources:
+  # ------------------------------------------------------------------ network: one public subnet, web ports only
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - { Key: Name, Value: !Ref "AWS::StackName" }
+
+  Gateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - { Key: Name, Value: !Ref "AWS::StackName" }
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref Gateway
+
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      # The server's public address is the Elastic IP below, attached before it boots.
+      MapPublicIpOnLaunch: false
+      Tags:
+        - { Key: Name, Value: !Ref "AWS::StackName" }
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Gateway
+
+  SubnetRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet
+      RouteTableId: !Ref RouteTable
+
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Web traffic in, nothing else. There is no SSH; Session Manager is the way in.
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: Certificate checks and the redirect to https }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+
+  # The network card and its fixed address exist before the server does, so the server boots with its final address.
+  ServerNic:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref Subnet
+      GroupSet: [!Ref WebSecurityGroup]
+      Description: !Sub "${AWS::StackName} server"
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+
+  ElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIp.AllocationId
+      NetworkInterfaceId: !Ref ServerNic
+
+  # ------------------------------------------------------------------ the data disk: its own, encrypted, snapshotted
+  DataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      AvailabilityZone: !GetAtt Subnet.AvailabilityZone
+      Size: !Ref DataVolumeGiB
+      VolumeType: gp3
+      Encrypted: true
+      SnapshotId: !If [RestoreFromSnapshot, !Ref DataSnapshotId, !Ref "AWS::NoValue"]
+      Tags:
+        - { Key: Name, Value: !Sub "${AWS::StackName}-data" }
+        - { Key: lh-backup, Value: !Ref "AWS::StackName" }
+
+  DataVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref Server
+      VolumeId: !Ref DataVolume
+      Device: /dev/sdf
+
+  SnapshotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: dlm.amazonaws.com }, Action: "sts:AssumeRole" }
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSDataLifecycleManagerServiceRole"
+
+  SnapshotPolicy:
+    Type: AWS::DLM::LifecyclePolicy
+    Properties:
+      Description: !Sub "${AWS::StackName} daily snapshot of the data disk kept 14 days"
+      State: ENABLED
+      ExecutionRoleArn: !GetAtt SnapshotRole.Arn
+      PolicyDetails:
+        ResourceTypes: [VOLUME]
+        TargetTags:
+          - { Key: lh-backup, Value: !Ref "AWS::StackName" }
+        Schedules:
+          - Name: daily
+            CopyTags: true
+            # 20:00 UTC is 03:00 in Jakarta, a quiet hour for the one person who uses it.
+            CreateRule: { Interval: 24, IntervalUnit: HOURS, Times: ["20:00"] }
+            RetainRule: { Count: 14 }
+
+  # ------------------------------------------------------------------ the server
+  ServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: ec2.amazonaws.com }, Action: "sts:AssumeRole" }
+      ManagedPolicyArns:
+        # Session Manager: the shell without an open SSH port.
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      Policies:
+        - PolicyName: learnharness
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # The unlock email. SES wants the sender's identity, and while the account is in the SES sandbox the recipient's too.
+              - Sid: SendUnlockEmail
+                Effect: Allow
+                Action: "ses:SendEmail"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}"
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${OwnerEmail}"
+              # Reading the one-time data upload (docs/mobile/data-migration.md); nothing can write or delete.
+              - Sid: ReadMigrationUpload
+                Effect: Allow
+                Action: "s3:GetObject"
+                Resource: !Sub "${MigrationBucket.Arn}/*"
+              - Sid: ListMigrationBucket
+                Effect: Allow
+                Action: "s3:ListBucket"
+                Resource: !GetAtt MigrationBucket.Arn
+
+  ServerProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref ServerRole]
+
+  Server:
+    Type: AWS::EC2::Instance
+    DependsOn: ElasticIpAssociation
+    Properties:
+      ImageId: !Ref UbuntuAmiParameter
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref ServerProfile
+      NetworkInterfaces:
+        - { NetworkInterfaceId: !Ref ServerNic, DeviceIndex: "0" }
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: { VolumeSize: !Ref RootVolumeGiB, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      # IMDSv2 only: a request that only fetches a page cannot read the server's credentials.
+      MetadataOptions: { HttpTokens: required, HttpEndpoint: enabled }
+      Tags:
+        - { Key: Name, Value: !Ref "AWS::StackName" }
+      # First boot only: write down the settings, fetch the repository, and hand over to deploy/aws/bootstrap.sh in it.
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          export HOME=/root DEBIAN_FRONTEND=noninteractive
+          exec > >(tee -a /var/log/learnharness-bootstrap.log) 2>&1
+          signal() {
+            curl -sS -m 30 -X PUT -H 'Content-Type:' \
+              --data-binary "{\"Status\":\"$1\",\"Reason\":\"$2\",\"UniqueId\":\"learnharness\",\"Data\":\"$1\"}" \
+              '${BootstrapHandle}' || true
+          }
+          trap 'signal FAILURE "the install failed: read /var/log/learnharness-bootstrap.log on the server"' ERR
+          mkdir -p /etc/learnharness
+          cat > /etc/learnharness/bootstrap.env <<'EOF_ENV'
+          LH_DOMAIN=${DomainName}
+          LH_OWNER_EMAIL=${OwnerEmail}
+          LH_REPO_URL=${RepoUrl}
+          LH_REPO_BRANCH=${RepoBranch}
+          LH_DATA_VOLUME_ID=${DataVolume}
+          LH_REGION=${AWS::Region}
+          EOF_ENV
+          chmod 600 /etc/learnharness/bootstrap.env
+          apt-get -o DPkg::Lock::Timeout=300 -y -q update
+          apt-get -o DPkg::Lock::Timeout=300 -y -q install git ca-certificates curl
+          git clone --depth 1 --branch '${RepoBranch}' '${RepoUrl}' /opt/learnharness
+          bash /opt/learnharness/deploy/aws/bootstrap.sh
+          signal SUCCESS "installed"
+
+  # CloudFormation waits here until the server says it is installed (or says it failed, or 30 minutes pass).
+  BootstrapHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  BootstrapSignal:
+    Type: AWS::CloudFormation::WaitCondition
+    DependsOn: [Server, DataVolumeAttachment]
+    Properties:
+      Handle: !Ref BootstrapHandle
+      Timeout: "1800"
+      Count: 1
+
+  RecoverAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Moves the server to healthy hardware when AWS reports a problem with the host.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions:
+        - { Name: InstanceId, Value: !Ref Server }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Sub "arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover"
+
+  # ------------------------------------------------------------------ names and mail, in the existing hosted zone
+  SesDomainIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref DomainName
+      DkimAttributes: { SigningEnabled: true }
+
+  SesOwnerIdentity:
+    Type: AWS::SES::EmailIdentity
+    Condition: CreateOwnerIdentity
+    Properties:
+      EmailIdentity: !Ref OwnerEmail
+
+  SiteRecords:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Comment: !Sub "${AWS::StackName}: the site and its mail signing"
+      RecordSets:
+        - Name: !Ref DomainName
+          Type: A
+          TTL: "300"
+          ResourceRecords: [!Ref ElasticIp]
+        - Name: !GetAtt SesDomainIdentity.DkimDNSTokenName1
+          Type: CNAME
+          TTL: "300"
+          ResourceRecords: [!GetAtt SesDomainIdentity.DkimDNSTokenValue1]
+        - Name: !GetAtt SesDomainIdentity.DkimDNSTokenName2
+          Type: CNAME
+          TTL: "300"
+          ResourceRecords: [!GetAtt SesDomainIdentity.DkimDNSTokenValue2]
+        - Name: !GetAtt SesDomainIdentity.DkimDNSTokenName3
+          Type: CNAME
+          TTL: "300"
+          ResourceRecords: [!GetAtt SesDomainIdentity.DkimDNSTokenValue3]
+
+  # ------------------------------------------------------------------ the one-time data upload, and a spending alarm
+  MigrationBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: forget-old-uploads
+            Status: Enabled
+            ExpirationInDays: 7
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub "${AWS::StackName}-monthly"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref MonthlyBudgetUSD, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref OwnerEmail }
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref OwnerEmail }
+
+Outputs:
+  SiteUrl:
+    Description: Open this, set the password, then add it to your phone's home screen.
+    Value: !Sub "https://${DomainName}"
+  OpenAShell:
+    Description: A shell on the server through Session Manager (no SSH). Needs the AWS CLI and its Session Manager plugin; the EC2 console's Connect button does the same.
+    Value: !Sub "aws ssm start-session --region ${AWS::Region} --target ${Server}"
+  MigrationBucket:
+    Description: Upload the zip of your desktop data here (docs/mobile/data-migration.md).
+    Value: !Ref MigrationBucket
+  DataVolumeId:
+    Description: The data disk. Snapshots of it are what the backups are.
+    Value: !Ref DataVolume
+  ServerAddress:
+    Description: The server's fixed public IP address.
+    Value: !Ref ElasticIp

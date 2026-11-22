@@ -2,6 +2,8 @@
 
 2026-11-22 · Thomson Simplify · part of the [combined plan](combined-plan.md)
 
+**As built (story 8):** the template and scripts are in `deploy/aws/`. Setting it up is in [hosting-guide.md](hosting-guide.md) and moving your data in [data-migration.md](data-migration.md). Where the build differs from the first plan, this page now says what was built. Nothing has been run on AWS yet.
+
 ## Summary
 
 Run LearnHarness on one small EC2 instance in US East (N. Virginia), the cheapest region, with the data on its own encrypted EBS volume, Caddy for HTTPS on the owner's domain, and daily snapshots. The phone (home-screen web app) and the desktop app (step 7 of the plan) both use it, so they share one copy of the data. Rough cost is about US$40 a month **(approximate)**. One user only.
@@ -41,7 +43,7 @@ One user and a single-process server that keeps JSON files on local disk means o
 | CloudWatch | Auto-recover alarm on the instance status check | 1 alarm | ~US$0.10 |
 | AWS Budgets | Alert before credits run out | 1 budget | Free |
 | IAM | Instance role: SSM managed policy, `ses:SendEmail` for the one sender, read on the temporary migration bucket | | Free |
-| S3 (temporary) | One-time data migration bucket, deleted afterwards | | ~US$0 |
+| S3 | A private bucket made by the stack for the one-time data upload. Files in it expire after 7 days, and the bucket goes with the stack (empty it first) | | ~US$0 |
 
 Region: `us-east-1`. t3.medium is US$0.0416 an hour there against about US$0.053 in Jakarta or Singapore ([CloudPrice](https://cloudprice.net/aws/ec2/instances/t3.medium), [DevZero](https://www.devzero.io/instances/aws/t3.medium), checked 2026-11-22). Pages may load about a quarter second slower from Indonesia; model replies come from US-based providers anyway.
 
@@ -57,13 +59,16 @@ Not needed for one user:
 
 ## Server setup
 
-1. Ubuntu 24.04 LTS with unattended security upgrades.
-2. Node.js at the version the repo's CI uses **(guess: Node 22 LTS)**, then `npm ci`, `npm run plugins:setup`, `npm run build` from the fork.
-3. Chromium from apt, with `CHROME_PATH` pointing at it, so demo checking works.
-4. A `learnharness` system user with home `/srv/lh`, and a systemd service running `npm start` (binds `localhost`), restarting on failure.
-5. Environment: `LH_DATA_DIR=/srv/lh/data`, `LH_AUTH_FILE=/srv/lh/auth.json` (both on the data disk), `LH_ALLOWED_HOSTS=learn.heythomson.com`, `LH_ACCESS_EMAIL=<unlock address>`.
-6. Caddy: `learn.heythomson.com { request_body { max_size 70MB } reverse_proxy 127.0.0.1:3000 }`. It gets and renews the certificate itself.
-7. Updates: pull the fork, rebuild, restart. A small script does this, run over Session Manager.
+The template's first-boot script fetches the repository and runs `deploy/aws/bootstrap.sh`, which does the following (running it again is safe):
+
+1. Ubuntu 24.04 LTS (Canonical's newest image) with unattended security upgrades, and a 2 GiB swap file so the build has room.
+2. Node.js 26, which the repo's CI uses, unpacked from nodejs.org's tarball and checked against its published SHA-256. Then, as the service user, `npm ci`, `npm run plugins:setup` and `npm run build` from the fork.
+3. Google Chrome stable from Google's package, with `CHROME_PATH=/usr/bin/google-chrome-stable`, so demo checking works. Ubuntu's own `chromium` package is a snap, which does not run for a service.
+4. The AWS CLI v2, which sends the unlock email through SES with the instance's role.
+5. A `learnharness` system user with home `/srv/lh`, which is the data disk's mount point, and a systemd service running `npm start` (binds `localhost`) that restarts on failure.
+6. The service's settings, in `/etc/learnharness/service.env`: `LH_DATA_DIR=/srv/lh/data`, `LH_AUTH_FILE=/srv/lh/auth.json` (so `access.json` sits beside it), `LH_ALLOWED_HOSTS=learn.heythomson.com`, `LH_ACCESS_EMAIL=<unlock address>`, `AWS_REGION` and `CHROME_PATH`.
+7. Caddy from its own apt repository: `learn.heythomson.com { request_body { max_size 70MB } reverse_proxy localhost:3000 }`. It gets and renews the certificate itself.
+8. Updates and the sign-in tool are small scripts in `deploy/aws/` (`update.sh`, `access.sh`), run over Session Manager.
 
 ## Security
 
@@ -72,11 +77,12 @@ Not needed for one user:
 - **Login:** as in [login.md](login.md). With no password set, the server refuses every non-localhost request.
 - **HTTPS behind a proxy:** today's same-origin check builds the expected origin from the request URL, which is `http://` behind Caddy, while the browser sends `https://`. The login work makes it trust Caddy's `X-Forwarded-Proto`, with a test.
 - **Disks:** EBS encryption on both volumes. `auth.json` stays plaintext inside, as the app stores it today.
-- **File tools:** the agent can read the service user's home folder, which holds only LearnHarness data and uploads.
+- **File tools:** the agent can read the service user's home folder, which holds only LearnHarness data and uploads. Its file tools refuse `auth.json` and `access.json` (API keys, password and sign-in state).
 - **Account:** MFA on the AWS root user, and a budget alert.
 
 ## Backups and recovery
 
-- **Backups:** a daily snapshot of the data disk, kept 14 days. The stores are plain files with no transactions, so the snapshot runs at a quiet hour **(guess: 3 AM Jakarta time)**, or the service is stopped for a few seconds first.
-- **Recovery:** if the instance fails its status check, the CloudWatch alarm recovers it. To rebuild, re-run the template and attach a disk made from the latest snapshot.
-- **Moving the desktop data:** see [combined-plan.md](combined-plan.md#moving-current-data-to-aws).
+- **Backups:** a daily snapshot of the data disk at 20:00 UTC (03:00 in Jakarta, a quiet hour), kept 14 days. A snapshot of a running disk holds what a power cut would have left; the service is not stopped for it.
+- **Recovery:** if AWS reports a problem with the server's host, the CloudWatch alarm moves it to healthy hardware. To rebuild, delete the stack and create it again with `DataSnapshotId` set to a snapshot of the data disk; the new disk is made from it. Steps in [hosting-guide.md](hosting-guide.md#backups-and-restore).
+- **Moving the desktop data:** [data-migration.md](data-migration.md).
+- **Stack updates:** the template is meant to be created once. The Ubuntu image is looked up again on every stack update, and a newer image makes CloudFormation try to replace the server, which fails while the data disk is attached. Code updates use `update.sh` instead.
